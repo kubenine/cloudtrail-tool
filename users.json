@@ -1,0 +1,200 @@
+{
+    "Users": [
+        {
+            "UserName": "divyansh@kubenine.com",
+            "UserId": "0103cdda-70c1-7037-1007-2e71b373d4f9",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "3086c22d-0280-498b-b253-0ce6b9387e2a"
+                }
+            ],
+            "Name": {
+                "Formatted": "Divyansh Singh",
+                "FamilyName": "Singh",
+                "GivenName": "Divyansh"
+            },
+            "DisplayName": "Divyansh Singh",
+            "Emails": [
+                {
+                    "Value": "divyansh@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "ppthakur8483@gmail.com",
+            "UserId": "11830daa-c0d1-7019-4236-9a1363a3c3e8",
+            "Name": {
+                "FamilyName": "Thakur",
+                "GivenName": "Prem"
+            },
+            "DisplayName": "Prem Thakur",
+            "Emails": [
+                {
+                    "Value": "ppthakur8483@gmail.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "illias@kubenine.com",
+            "UserId": "11a37dda-1091-7090-a625-c4932c06a1a2",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "8db5f3ed-da18-4f8e-a37b-11ac56d8f1be"
+                }
+            ],
+            "Name": {
+                "Formatted": "Illias E I",
+                "FamilyName": "E I",
+                "GivenName": "Illias"
+            },
+            "DisplayName": "Illias E I",
+            "Emails": [
+                {
+                    "Value": "illias@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "Title": "Software Engineer",
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "huzaif@kubenine.com",
+            "UserId": "21039d0a-b061-70d8-5642-89a140b40c45",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "ee1d68d1-a07b-47e4-bdcf-25b76ad42ff9"
+                }
+            ],
+            "Name": {
+                "Formatted": "Mohammad Huzaif Shah",
+                "FamilyName": "Shah",
+                "GivenName": "Mohammad Huzaif"
+            },
+            "DisplayName": "Mohammad Huzaif Shah",
+            "Emails": [
+                {
+                    "Value": "huzaif@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "vishnu@kubenine.com",
+            "UserId": "21136dba-0021-7096-6ca7-a88b6b5ad66f",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "0acfb118-ab7c-46a3-a8a9-9c606c54a98c"
+                }
+            ],
+            "Name": {
+                "Formatted": "Vishnu Madle",
+                "FamilyName": "Madle",
+                "GivenName": "Vishnu"
+            },
+            "DisplayName": "Vishnu Madle",
+            "Emails": [
+                {
+                    "Value": "vishnu@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "guru@kubenine.com",
+            "UserId": "4143ad1a-f011-7040-918d-7aeae97af254",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "5e13d8dd-3a5e-4cb1-884f-61d8a3f8aca1"
+                }
+            ],
+            "Name": {
+                "Formatted": "Guruprasad Sutar",
+                "FamilyName": "Sutar",
+                "GivenName": "Guruprasad"
+            },
+            "DisplayName": "Guruprasad Sutar",
+            "Emails": [
+                {
+                    "Value": "guru@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "dipchand@kubenine.com",
+            "UserId": "71338d1a-e021-702a-80a3-30f3f8007021",
+            "ExternalIds": [
+                {
+                    "Issuer": "https://scim.aws.com/lSw54513fdb-adfa-4745-b5f4-63db5e98610d",
+                    "Id": "fb44805f-6c0f-4e47-82d4-27c29ce8f3e6"
+                }
+            ],
+            "Name": {
+                "Formatted": "Dipchand Yadav",
+                "FamilyName": "Yadav",
+                "GivenName": "Dipchand"
+            },
+            "DisplayName": "Dipchand Yadav",
+            "Emails": [
+                {
+                    "Value": "dipchand@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "vikas@kubeops.consulting",
+            "UserId": "91d3bdfa-2001-70b3-260f-17a2eb816b62",
+            "Name": {
+                "FamilyName": "Yadav",
+                "GivenName": "Vikas"
+            },
+            "DisplayName": "Vikas Yadav",
+            "Emails": [
+                {
+                    "Value": "vikas@kubeops.consulting",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        },
+        {
+            "UserName": "vikas@kubenine.com",
+            "UserId": "e1635dfa-c021-70af-ca5c-2ce2054ef135",
+            "Name": {
+                "FamilyName": "Yadav",
+                "GivenName": "Vikas"
+            },
+            "DisplayName": "Vikas Yadav",
+            "Emails": [
+                {
+                    "Value": "vikas@kubenine.com",
+                    "Type": "work",
+                    "Primary": true
+                }
+            ],
+            "IdentityStoreId": "d-9f6708e41b"
+        }
+    ]
+} 
