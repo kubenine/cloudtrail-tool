@@ -6,14 +6,33 @@ import botocore.exceptions
 import os
 import json
 from query_helper import QueryHelper
+from typing import List, Dict, Any, Optional, Tuple, Union, TypedDict
+
+class EventData(TypedDict):
+    timestamp: str
+    event_name: str
+    source_ip: str
+    resource: str
+    request_parameters: Dict[str, Any]
+    response_elements: Dict[str, Any]
+
+class UserInfo(TypedDict):
+    username: str
+    arn: str
+
+class SSOUserInfo(TypedDict):
+    username: str
+    user_id: str
+    display_name: str
+    email: str
 
 class CloudTrailHelper:
-    def __init__(self, log_group="/aws/cloudtrail"):
+    def __init__(self, log_group: str = "/aws/cloudtrail") -> None:
         # Get credentials from environment variables
-        aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-        aws_region = os.getenv('AWS_DEFAULT_REGION')
-        session_token = os.getenv('AWS_SESSION_TOKEN')
+        aws_access_key: Optional[str] = os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret_key: Optional[str] = os.getenv('AWS_SECRET_ACCESS_KEY')
+        aws_region: Optional[str] = os.getenv('AWS_DEFAULT_REGION')
+        session_token: Optional[str] = os.getenv('AWS_SESSION_TOKEN')
         
         # Create session with explicit credentials
         if aws_access_key and aws_secret_key:
@@ -78,15 +97,23 @@ class CloudTrailHelper:
             self.sso_client = boto3.client("identitystore")
             self.sso_admin_client = boto3.client("sso-admin")
             
-        self.log_group = log_group
+        self.log_group: str = log_group
         self.query_helper = QueryHelper()
     
-    def run_insights_query(self, query: str, start_time: int, end_time: int) -> list[dict] | None:
-        """Run a CloudWatch Logs Insights query and return the results."""
-        # Exceptions:
-        # - botocore.exceptions.ClientError: When AWS credentials are invalid
-        # - Exception: For other errors
-        """Run a CloudWatch Logs Insights query and return the results."""
+    def run_insights_query(self, query: str, start_time: int, end_time: int) -> Optional[List[Dict[str, Any]]]:
+        """Run a CloudWatch Logs Insights query and return the results.
+        
+        Args:
+            query: The CloudWatch Logs Insights query string
+            start_time: Start time in milliseconds since epoch
+            end_time: End time in milliseconds since epoch
+            
+        Returns:
+            List of query results or None if query fails
+            
+        Raises:
+            Exception: If AWS credentials are invalid or other errors occur
+        """
         try:
             response = self.client.start_query(
                 logGroupName=self.log_group,
@@ -109,28 +136,22 @@ class CloudTrailHelper:
                 raise Exception("Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the .env file.")
             raise
 
-    def search_events(self, query, hours=24):
-        """
-        Search for CloudTrail events based on a natural language query.
+    def search_events(self, query: str, hours: int = 24) -> Tuple[str, List[EventData]]:
+        """Search for CloudTrail events based on a natural language query.
         
         Args:
-            query (str): A natural language query
-            hours (int): Time window in hours to search
+            query: A natural language query
+            hours: Time window in hours to search
             
         Returns:
-            tuple: (formatted_summary, raw_events)
+            Tuple containing:
+            - Formatted summary string
+            - List of raw event dictionaries
         """
         # Use ChatGPT to translate the natural language query
         insights_query = self.query_helper.translate_to_cloudtrail_query(query)
         if not insights_query:
             return "Error translating query. Please try rephrasing your question.", []
-        
-        # Log the generated query
-        print("\n=== Generated CloudWatch Logs Insights Query ===")
-        print(f"Natural Language Query: {query}")
-        print("Generated Query:")
-        print(insights_query)
-        print("=============================================\n")
         
         # Calculate time range
         end_time = int(datetime.now().timestamp() * 1000)
@@ -153,18 +174,21 @@ class CloudTrailHelper:
                 status = result['status']
             
             # Format the results
-            formatted_results = []
+            formatted_results: List[EventData] = []
             for result in result.get('results', []):
                 try:
                     # Extract fields from CloudWatch Logs Insights results
-                    event_data = {}
+                    event_data: Dict[str, Any] = {}
                     for field in result:
                         if 'field' in field and 'value' in field:
                             event_data[field['field']] = field['value']
                     
                     # Parse the message JSON
                     message_str = event_data.get('@message', '{}')
-                    message = json.loads(message_str)
+                    try:
+                        message = json.loads(message_str)
+                    except json.JSONDecodeError:
+                        continue
                     
                     # Extract timestamp and format it
                     timestamp = event_data.get('@timestamp', 0)
@@ -184,40 +208,34 @@ class CloudTrailHelper:
                     
                     # Extract user information
                     user_identity = message.get('userIdentity', {})
-                    username = user_identity.get('userName', 'Unknown')
-                    user_type = user_identity.get('type', 'Unknown')
+                    username = "Unknown"
                     
-                    # Handle SSO users
-                    if user_type == 'SSOUser':
-                        # Try to get display name from SSO user data
-                        try:
-                            with open('users.json', 'r') as f:
-                                sso_users = json.loads(f.read())
-                                for user in sso_users.get('Users', []):
-                                    if user['UserName'] == username:
-                                        username = f"{user.get('DisplayName', username)} ({username})"
-                                        break
-                        except Exception:
-                            pass
-                    elif username == 'Unknown' and 'arn' in user_identity:
-                        arn_parts = user_identity['arn'].split('/')
-                        if len(arn_parts) > 1:
-                            username = arn_parts[-1]
+                    if isinstance(user_identity, dict):
+                        if 'userName' in user_identity:
+                            username = user_identity['userName']
+                        elif 'principalId' in user_identity:
+                            username = user_identity['principalId']
+                        elif 'type' in user_identity:
+                            username = f"{user_identity['type']} User"
                     
                     # Extract event information
                     event_name = message.get('eventName', 'Unknown')
                     source_ip = message.get('sourceIPAddress', 'Unknown')
                     
-                    # Extract resource information
-                    request_params = message.get('requestParameters', {})
-                    resource_name = 'Unknown'
-                    resource_details = {}
+                    # Extract error information
+                    error_code = message.get('errorCode', '')
+                    error_message = message.get('errorMessage', '')
                     
-                    # Try to extract resource name and details based on event type
+                    # Extract resource information
+                    request_params = message.get('requestParameters', {}) or {}
+                    resource_name = 'Unknown'
+                    
+                    # Try to extract resource name based on event type
                     if request_params:
                         # Common resource fields
                         resource_fields = {
                             'bucketName': 'S3 Bucket',
+                            'BucketName': 'S3 Bucket',
                             'instanceId': 'EC2 Instance',
                             'functionName': 'Lambda Function',
                             'roleName': 'IAM Role',
@@ -226,49 +244,72 @@ class CloudTrailHelper:
                             'clusterName': 'ECS Cluster',
                             'tableName': 'DynamoDB Table',
                             'queueName': 'SQS Queue',
-                            'topicName': 'SNS Topic'
+                            'topicName': 'SNS Topic',
+                            'logGroupName': 'CloudWatch Log Group',
+                            'distributionId': 'CloudFront Distribution',
+                            'loadBalancerName': 'Load Balancer',
+                            'autoScalingGroupName': 'Auto Scaling Group',
+                            'dbInstanceIdentifier': 'RDS Instance',
+                            'cacheClusterId': 'ElastiCache Cluster',
+                            'streamName': 'Kinesis Stream',
+                            'domainName': 'Route 53 Domain',
+                            'certificateId': 'ACM Certificate',
+                            'keyId': 'KMS Key',
+                            'secretId': 'Secrets Manager Secret',
+                            'parameterName': 'Systems Manager Parameter',
+                            'repositoryName': 'ECR Repository',
+                            'clusterName': 'EKS Cluster',
+                            'taskDefinition': 'ECS Task Definition',
+                            'serviceName': 'ECS Service',
+                            'apiId': 'API Gateway',
+                            'restApiId': 'API Gateway',
+                            'stageName': 'API Gateway Stage',
+                            'functionName': 'Lambda Function',
+                            'ruleName': 'EventBridge Rule',
+                            'queueUrl': 'SQS Queue',
+                            'topicArn': 'SNS Topic',
+                            'bucketName': 'S3 Bucket',
+                            'objectKey': 'S3 Object'
                         }
                         
                         for field, resource_type in resource_fields.items():
                             if field in request_params:
                                 resource_name = f"{resource_type}: {request_params[field]}"
-                                resource_details[field] = request_params[field]
                                 break
-                        
-                        # If no common field found, try to extract any meaningful resource information
-                        if resource_name == 'Unknown':
-                            for key, value in request_params.items():
-                                if isinstance(value, str) and len(value) > 3:
-                                    resource_name = f"{key}: {value}"
-                                    resource_details[key] = value
-                                    break
                     
-                    formatted_results.append({
+                    # Create formatted event data
+                    formatted_event: EventData = {
                         'timestamp': formatted_time,
-                        'user': username,
-                        'user_type': user_type,
+                        'event_name': event_name,
                         'source_ip': source_ip,
-                        'event_type': event_name,
                         'resource': resource_name,
-                        'resource_details': resource_details,
-                        'request_parameters': request_params
-                    })
-                except Exception as e:
-                    print(f"Error parsing event: {str(e)}")
+                        'request_parameters': request_params,
+                        'response_elements': message.get('responseElements', {}),
+                        'user': username,  # Add user information to the formatted results
+                        'errorCode': error_code,  # Add error information
+                        'errorMessage': error_message
+                    }
+                    
+                    formatted_results.append(formatted_event)
+                    
+                except Exception:
                     continue
             
-            # Use ChatGPT to format the results into a natural language summary
+            # Format the results using ChatGPT
             summary = self.query_helper.format_results(formatted_results)
-            
             return summary, formatted_results
-        except Exception as e:
-            print(f"Error executing query: {str(e)}")
+            
+        except Exception:
             return "Error executing query. Please try again.", []
 
-    def list_iam_users(self):
-        """Get a list of IAM users."""
+    def list_iam_users(self) -> List[UserInfo]:
+        """Get a list of IAM users.
+        
+        Returns:
+            List of dictionaries containing user information
+        """
         try:
-            users = []
+            users: List[UserInfo] = []
             paginator = self.iam_client.get_paginator('list_users')
             
             for page in paginator.paginate():
@@ -284,8 +325,16 @@ class CloudTrailHelper:
                 raise Exception("Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the .env file.")
             raise Exception(f"Error listing IAM users: {str(e)}")
 
-    def get_user_events(self, username, hours=24):
-        """Get events for a specific user within the last N hours."""
+    def get_user_events(self, username: str, hours: int = 24) -> List[EventData]:
+        """Get events for a specific user within the last N hours.
+        
+        Args:
+            username: IAM username to search for
+            hours: Time window in hours to search
+            
+        Returns:
+            List of event dictionaries
+        """
         try:
             end_time = int(datetime.now().timestamp() * 1000)
             start_time = int((datetime.now() - timedelta(hours=hours)).timestamp() * 1000)
@@ -299,11 +348,11 @@ class CloudTrailHelper:
             results = self.run_insights_query(query, start_time, end_time)
             
             # Format the results similar to search_events
-            formatted_results = []
+            formatted_results: List[EventData] = []
             for result in results:
                 try:
                     # Extract fields from CloudWatch Logs Insights results
-                    event_data = {}
+                    event_data: Dict[str, Any] = {}
                     for field in result:
                         if 'field' in field and 'value' in field:
                             event_data[field['field']] = field['value']
@@ -362,10 +411,14 @@ class CloudTrailHelper:
         except Exception as e:
             raise Exception(f"Error getting user events: {str(e)}")
 
-    def list_sso_users(self):
-        """Get a list of SSO users from the users.json file."""
+    def list_sso_users(self) -> List[SSOUserInfo]:
+        """Get a list of SSO users from the users.json file.
+        
+        Returns:
+            List of dictionaries containing SSO user information
+        """
         try:
-            users = []
+            users: List[SSOUserInfo] = []
             # Read users from the users.json file
             with open('users.json', 'r') as f:
                 data = json.loads(f.read())
@@ -381,8 +434,16 @@ class CloudTrailHelper:
         except Exception as e:
             raise Exception(f"Error reading SSO users from file: {str(e)}")
 
-    def get_sso_user_events(self, username, hours=24):
-        """Get events for a specific SSO user within the last N hours."""
+    def get_sso_user_events(self, username: str, hours: int = 24) -> List[EventData]:
+        """Get events for a specific SSO user within the last N hours.
+        
+        Args:
+            username: SSO username to search for
+            hours: Time window in hours to search
+            
+        Returns:
+            List of event dictionaries
+        """
         try:
             end_time = int(datetime.now().timestamp() * 1000)
             start_time = int((datetime.now() - timedelta(hours=hours)).timestamp() * 1000)
@@ -397,11 +458,11 @@ class CloudTrailHelper:
             results = self.run_insights_query(query, start_time, end_time)
             
             # Format the results similar to get_user_events
-            formatted_results = []
+            formatted_results: List[EventData] = []
             for result in results:
                 try:
                     # Extract fields from CloudWatch Logs Insights results
-                    event_data = {}
+                    event_data: Dict[str, Any] = {}
                     for field in result:
                         if 'field' in field and 'value' in field:
                             event_data[field['field']] = field['value']

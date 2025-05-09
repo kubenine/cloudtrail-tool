@@ -15,16 +15,21 @@ The query should search CloudTrail logs and extract relevant information.
 Focus on identifying the service (S3, EC2, IAM), action (create, delete, modify), and resource type.
 
 Important rules:
-1. Always start with 'fields @timestamp, @message'
+1. Always start with 'fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters'
 2. Use only valid CloudWatch Logs Insights syntax
 3. Do not use any functions like timestamp() or date()
-4. If not specified any general operations like created, deleted, modified, etc, use the a query that can cover all the cases and display it in the output.
-5. If no query is found, try to find the most relevant query using the natural language query, but do not deviate from what is being asked.
-6. Use only basic operators: like, not like, and, or
-7. Always end with '| sort @timestamp desc'
-8. For SSO user queries, include both the user's email and display name in the filter
-9. For resource-focused queries, include detailed resource information in the fields
-10. Always include userIdentity information to capture both IAM and SSO users
+4. Use only basic operators: like, not like, and, or
+5. Always end with '| sort @timestamp desc'
+6. For SSO user queries, include both the user's email and display name in the filter
+7. For resource-focused queries, include detailed resource information in the fields
+8. Always include userIdentity information to capture both IAM and SSO users
+9. Keep the query simple and focused on the main intent
+10. Use exact matches when possible instead of partial matches
+11. For general queries without specific service/action, use broader filters
+12. Include error information when relevant
+13. Consider both successful and failed actions
+14. Handle time-based queries appropriately
+15. Include relevant AWS service names in filters
 
 Natural Language Query: {natural_query}
 
@@ -39,14 +44,14 @@ fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, us
             response = self.client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a CloudWatch Logs Insights query expert. You only return valid query strings without any explanations."},
+                    {"role": "system", "content": "You are a CloudWatch Logs Insights query expert. You only return valid query strings without any explanations. Keep queries simple and focused. Handle both specific and general queries effectively."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3
             )
             query = response.choices[0].message.content.strip()
             
-            # Validate the query structure
+            # Validate and enhance the query structure
             if not query.startswith('fields @timestamp, @message'):
                 query = 'fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters\n' + query
             
@@ -57,9 +62,12 @@ fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, us
             query = query.replace('timestamp(', '@timestamp')
             query = query.replace('date(', '@timestamp')
             
+            # Add error information if not present
+            if 'errorCode' not in query and 'errorMessage' not in query:
+                query = query.replace('fields @timestamp, @message', 'fields @timestamp, @message, errorCode, errorMessage')
+            
             return query
-        except Exception as e:
-            print(f"Error translating query: {str(e)}")
+        except Exception:
             return None
 
     def format_results(self, results):
@@ -67,80 +75,80 @@ fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, us
         if not results:
             return "No events found matching your query."
         
-        # Prepare events for ChatGPT
+        # Prepare events for ChatGPT with limited data
         events_data = []
         for event in results:
-            # Extract user information
-            user = event['user']
-            if user == 'Unknown':
-                # Try to extract user from ARN or other fields
-                if 'request_parameters' in event and isinstance(event['request_parameters'], dict):
-                    if 'userName' in event['request_parameters']:
-                        user = event['request_parameters']['userName']
-                    elif 'roleName' in event['request_parameters']:
-                        user = f"Role: {event['request_parameters']['roleName']}"
-                    elif 'assumedRole' in event['request_parameters']:
-                        user = f"Assumed Role: {event['request_parameters']['assumedRole']}"
+            try:
+                # Extract user information from event data
+                user = event.get('user', 'Unknown')
                 
-                # If still unknown, use a more descriptive label
-                if user == 'Unknown':
-                    user = "System/AWS Service"
-            
-            # Extract resource information
-            resource_info = event['resource']
-            if resource_info == 'Unknown' and 'request_parameters' in event:
-                params = event['request_parameters']
-                if isinstance(params, dict):
-                    # Try to extract resource information from common fields
-                    resource_fields = ['bucketName', 'instanceId', 'functionName', 'roleName', 'userName', 'groupName']
-                    for field in resource_fields:
-                        if field in params:
-                            resource_info = f"{field}: {params[field]}"
-                            break
-            
+                # Extract resource information
+                resource_info = event.get('resource', 'Unknown')
+                
+                # Extract event name
+                event_name = event.get('event_name', 'Unknown')
+                
+                # Extract error information if present
+                error_info = ""
+                if 'errorCode' in event:
+                    error_info = f" (Error: {event['errorCode']})"
+                
+                # Only include essential fields to reduce token count
+                events_data.append({
+                    'time': event.get('timestamp', 'Unknown'),
+                    'user': user,
+                    'action': event_name + error_info,
+                    'resource': resource_info
+                })
+            except Exception:
+                continue
+
+        # Limit the number of events to process
+        max_events = 50
+        if len(events_data) > max_events:
+            events_data = events_data[:max_events]
             events_data.append({
-                'timestamp': event['timestamp'],
-                'user': user,
-                'action': event['event_type'],
-                'resource': resource_info,
-                'source_ip': event['source_ip'],
-                'request_parameters': event.get('request_parameters', {})
+                'note': f"... and {len(results) - max_events} more events"
             })
 
-        prompt = f"""Create a natural, conversational summary of these AWS CloudTrail events.
-Focus on describing the resources and actions performed on them in detail.
-Write it as if you're explaining to someone what happened, using simple language.
-Break down the summary into clear bullet points, where each point tells a complete story.
-
-For example:
-• User 'john.doe@company.com' created an S3 bucket named 'my-data-bucket' yesterday at 2:30 PM
-• Role 'AdminRole' modified security group 'web-servers' to allow inbound traffic on port 80
-• SSO user 'Jane Smith' launched 3 EC2 instances of type t2.micro throughout the day
+        prompt = f"""Summarize these AWS CloudTrail events in a clear, concise format.
+Focus on who did what to which resource and when.
 
 Events:
 {json.dumps(events_data, indent=2)}
 
-Write a clear, natural summary that:
-1. Uses bullet points (•) for each main event or group of related events
-2. Groups similar events together and summarizes the number of occurrences
-3. ALWAYS identifies who performed each action (IAM user, SSO user, or role)
-4. Includes detailed resource information (names, IDs, configurations)
-5. Describes the specific actions performed on each resource
-6. Includes a general time reference like "today", "yesterday", or the full date
-7. Omits listing each individual timestamp
-8. Uses simple, conversational language
-9. Focuses on the impact of the actions on the resources
+Rules for summary:
+1. Use bullet points (•)
+2. Each bullet point should follow this format: "User [username] [action] [resource] at [time]"
+3. Group similar events together with a count
+4. Keep descriptions simple and direct
+5. Include exact times for important actions
+6. Skip redundant information
+7. Focus on the most important details
+8. Use consistent formatting
+9. Keep it concise and to the point
+10. Avoid technical jargon unless necessary
+11. Include error information when present
+12. Group events by user when possible
+13. Highlight unusual or important actions
+14. Include time ranges for grouped events
+15. Maintain chronological order
 
-Return ONLY the bullet-pointed summary, nothing else."""
+Example format:
+• User john.doe@company.com created S3 bucket my-bucket at 2:30 PM
+• User admin-role modified IAM policy admin-policy at 3:15 PM
+• User jane.smith@company.com deleted 3 EC2 instances between 4:00 PM and 4:30 PM
+• User system-role failed to create Lambda function (Error: AccessDenied) at 5:00 PM"""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a friendly AWS expert explaining CloudTrail events in simple, conversational language using bullet points. Always identify who performed each action and focus on describing the resources and actions in detail."},
+                    {"role": "system", "content": "You are an AWS expert explaining CloudTrail events in a clear, concise format. Focus on who did what to which resource and when. Include error information when relevant."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1000
             )
             summary = response.choices[0].message.content.strip()
             
@@ -150,8 +158,7 @@ Return ONLY the bullet-pointed summary, nothing else."""
                 summary = summary[1:]  # Remove leading newline if present
             
             return summary
-        except Exception as e:
-            print(f"Error formatting results: {str(e)}")
+        except Exception:
             return self._format_basic_summary(results)
 
     def _format_basic_summary(self, results):
@@ -161,8 +168,12 @@ Return ONLY the bullet-pointed summary, nothing else."""
         # Group events by date
         grouped_events = defaultdict(list)
         for event in results:
-            date = event['timestamp'].split(' ')[0]
-            grouped_events[date].append(event)
+            try:
+                date = event.get('timestamp', '').split(' ')[0]
+                if date:
+                    grouped_events[date].append(event)
+            except Exception:
+                continue
         
         # Format each day's events
         for date, events in sorted(grouped_events.items(), reverse=True):
@@ -171,22 +182,36 @@ Return ONLY the bullet-pointed summary, nothing else."""
             # Group similar events
             event_groups = defaultdict(list)
             for event in events:
-                key = f"{event['event_type']}_{event['resource']}"
-                event_groups[key].append(event)
+                try:
+                    key = f"{event.get('event_name', 'Unknown')}_{event.get('resource', 'Unknown')}"
+                    event_groups[key].append(event)
+                except Exception:
+                    continue
             
             # Format each group of similar events
             for key, group in event_groups.items():
                 if len(group) == 1:
                     event = group[0]
-                    summary += f"• **{event['event_type']}** by {event['user']} at {event['timestamp'].split(' ')[1]}\n"
-                    summary += f"  - Resource: {event['resource']}\n"
-                    if event.get('request_parameters'):
-                        summary += f"  - Details: {str(event['request_parameters'])[:100]}...\n"
+                    error_info = f" (Error: {event.get('errorCode', '')})" if 'errorCode' in event else ""
+                    summary += f"• User {event.get('user', 'Unknown')} {event.get('event_name', 'Unknown')}{error_info} {event.get('resource', 'Unknown')} at {event.get('timestamp', '').split(' ')[1]}\n"
                 else:
                     event = group[0]
-                    summary += f"• **{event['event_type']}** performed {len(group)} times by {event['user']}\n"
-                    summary += f"  - Resource: {event['resource']}\n"
-                    summary += f"  - Times: {', '.join(e['timestamp'].split(' ')[1] for e in group)}\n"
+                    error_info = f" (Error: {event.get('errorCode', '')})" if 'errorCode' in event else ""
+                    summary += f"• User {event.get('user', 'Unknown')} {event.get('event_name', 'Unknown')}{error_info} {event.get('resource', 'Unknown')} {len(group)} times\n"
+                    times = []
+                    for e in group[:3]:
+                        try:
+                            time = e.get('timestamp', '').split(' ')[1]
+                            if time:
+                                times.append(time)
+                        except Exception:
+                            continue
+                    if times:
+                        summary += f"  - Times: {', '.join(times)}"
+                        if len(group) > 3:
+                            summary += f" and {len(group) - 3} more times\n"
+                        else:
+                            summary += "\n"
             
             summary += "\n"
         

@@ -76,30 +76,34 @@ class ResourceActivityHelper:
         # Prepare events for ChatGPT
         events_data = []
         for event in events:
-            # Extract user information
-            user = event['user']
-            if user == 'Unknown':
-                user = "System/AWS Service"
+            try:
+                # Extract user information
+                user = event.get('user', 'Unknown')
+                if user == 'Unknown':
+                    user = "System/AWS Service"
 
-            # Extract resource information
-            resource_info = event['resource']
-            if resource_info == 'Unknown' and 'request_parameters' in event:
-                params = event['request_parameters']
-                if isinstance(params, dict):
-                    # Try to extract resource information from common fields
-                    for field in self.aws_services[service]['resource_types']:
-                        if field in params:
-                            resource_info = f"{field}: {params[field]}"
-                            break
+                # Extract resource information
+                resource_info = event.get('resource', 'Unknown')
+                if resource_info == 'Unknown' and 'request_parameters' in event:
+                    params = event.get('request_parameters', {})
+                    if isinstance(params, dict):
+                        # Try to extract resource information from common fields
+                        for field in self.aws_services[service]['resource_types']:
+                            if field in params:
+                                resource_info = f"{field}: {params[field]}"
+                                break
 
-            events_data.append({
-                'timestamp': event['timestamp'],
-                'user': user,
-                'action': event['event_type'],
-                'resource': resource_info,
-                'source_ip': event['source_ip'],
-                'request_parameters': event.get('request_parameters', {})
-            })
+                events_data.append({
+                    'timestamp': event.get('timestamp', 'Unknown'),
+                    'user': user,
+                    'action': event.get('event_name', 'Unknown'),
+                    'resource': resource_info,
+                    'source_ip': event.get('source_ip', 'Unknown'),
+                    'request_parameters': event.get('request_parameters', {})
+                })
+            except Exception as e:
+                # Silently continue on error to prevent error messages from showing
+                continue
 
         prompt = f"""Create a natural, conversational summary of AWS {self.aws_services[service]['name']} resource activity.
 Focus on describing who interacted with the resources and what actions they performed.
@@ -147,7 +151,7 @@ Return ONLY the bullet-pointed summary, nothing else."""
             
             return summary
         except Exception as e:
-            print(f"Error formatting resource activity: {str(e)}")
+            # Silently fall back to basic summary without printing error
             return self._format_basic_summary(events, service, resource_type)
 
     def _format_basic_summary(self, events, service, resource_type=None):
@@ -157,8 +161,12 @@ Return ONLY the bullet-pointed summary, nothing else."""
         # Group events by date
         grouped_events = defaultdict(list)
         for event in events:
-            date = event['timestamp'].split(' ')[0]
-            grouped_events[date].append(event)
+            try:
+                date = event.get('timestamp', '').split(' ')[0]
+                if date:
+                    grouped_events[date].append(event)
+            except Exception:
+                continue
         
         # Format each day's events
         for date, day_events in sorted(grouped_events.items(), reverse=True):
@@ -167,22 +175,38 @@ Return ONLY the bullet-pointed summary, nothing else."""
             # Group similar events
             event_groups = defaultdict(list)
             for event in day_events:
-                key = f"{event['event_type']}_{event['resource']}"
-                event_groups[key].append(event)
+                try:
+                    key = f"{event.get('event_name', 'Unknown')}_{event.get('resource', 'Unknown')}"
+                    event_groups[key].append(event)
+                except Exception:
+                    continue
             
             # Format each group of similar events
             for key, group in event_groups.items():
                 if len(group) == 1:
                     event = group[0]
-                    summary += f"• **{event['event_type']}** by {event['user']} at {event['timestamp'].split(' ')[1]}\n"
-                    summary += f"  - Resource: {event['resource']}\n"
+                    summary += f"• **{event.get('event_name', 'Unknown')}** by {event.get('user', 'Unknown')} at {event.get('timestamp', '').split(' ')[1]}\n"
+                    summary += f"  - Resource: {event.get('resource', 'Unknown')}\n"
                     if event.get('request_parameters'):
                         summary += f"  - Details: {str(event['request_parameters'])[:100]}...\n"
                 else:
                     event = group[0]
-                    summary += f"• **{event['event_type']}** performed {len(group)} times by {event['user']}\n"
-                    summary += f"  - Resource: {event['resource']}\n"
-                    summary += f"  - Times: {', '.join(e['timestamp'].split(' ')[1] for e in group)}\n"
+                    summary += f"• **{event.get('event_name', 'Unknown')}** performed {len(group)} times by {event.get('user', 'Unknown')}\n"
+                    summary += f"  - Resource: {event.get('resource', 'Unknown')}\n"
+                    times = []
+                    for e in group:
+                        try:
+                            time = e.get('timestamp', '').split(' ')[1]
+                            if time:
+                                times.append(time)
+                        except Exception:
+                            continue
+                    if times:
+                        summary += f"  - Times: {', '.join(times[:3])}"
+                        if len(times) > 3:
+                            summary += f" and {len(times) - 3} more times\n"
+                        else:
+                            summary += "\n"
             
             summary += "\n"
         
