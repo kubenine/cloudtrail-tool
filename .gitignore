@@ -1,7 +1,64 @@
+# Environment and secrets
 .env
-*.env
-__pycache__/
-*.log
+.venv/
+venv/
+credentials.json
 *.pem
 *.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+sso.ipynb
+
+# AWS
+.aws/
+aws.json
+aws-credentials.json
+
+# Data files
+*.csv
+*.json
+!package.json
+!tsconfig.json
+users.json
+*.log
+*.sqlite
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Large files
+*.so
+*.dylib
+*.dll
+*.pyd
+pyarrow/
 

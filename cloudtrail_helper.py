@@ -7,6 +7,8 @@ import os
 import json
 from query_helper import QueryHelper
 from typing import List, Dict, Any, Optional, Tuple, Union, TypedDict
+from dotenv import load_dotenv
+from pathlib import Path
 
 class EventData(TypedDict):
     timestamp: str
@@ -28,11 +30,35 @@ class SSOUserInfo(TypedDict):
 
 class CloudTrailHelper:
     def __init__(self, log_group: str = "/aws/cloudtrail") -> None:
+        # Find and load the .env file
+        env_path = None
+        
+        # Try current directory
+        if os.path.exists('.env'):
+            env_path = '.env'
+        # Try parent directory
+        elif os.path.exists('../.env'):
+            env_path = '../.env'
+        # Try absolute path from project root
+        else:
+            project_root = Path(__file__).resolve().parent
+            env_file = project_root / '.env'
+            if env_file.exists():
+                env_path = str(env_file)
+        
+        if env_path:
+            load_dotenv(dotenv_path=env_path)
+        else:
+            print("Warning: No .env file found")
+        
         # Get credentials from environment variables
         aws_access_key: Optional[str] = os.getenv('AWS_ACCESS_KEY_ID')
         aws_secret_key: Optional[str] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        aws_region: Optional[str] = os.getenv('AWS_DEFAULT_REGION')
+        aws_region: Optional[str] = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')  # Default to us-east-1 if not specified
         session_token: Optional[str] = os.getenv('AWS_SESSION_TOKEN')
+        
+        if not aws_access_key or not aws_secret_key:
+            raise ValueError("AWS credentials not found. Please either:\n1. Check your .env file, or\n2. Enter credentials in the sidebar")
         
         # Create session with explicit credentials
         if aws_access_key and aws_secret_key:
