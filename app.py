@@ -154,7 +154,7 @@ with tab1:
                         
                         # Display the generated query in a collapsible section
                         with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.translate_to_cloudtrail_query(query), language="sql")
+                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
                         
                         # Display raw data in a collapsible section
                         with st.expander("View Raw Data"):
@@ -163,8 +163,8 @@ with tab1:
                             for result in results:
                                 display_result = {
                                     'timestamp': result['timestamp'],
-                                    'user': result['user'],
-                                    'action': result['event_type'],
+                                    'user': result.get('user', 'Unknown'),
+                                    'action': result['event_name'],
                                     'resource': result['resource'],
                                     'source_ip': result['source_ip'],
                                     'request_parameters': str(result.get('request_parameters', ''))  # Convert to string
@@ -179,7 +179,7 @@ with tab1:
                         
                         # Show the generated query for transparency
                         with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.translate_to_cloudtrail_query(query), language="sql")
+                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
                         
                         # Provide helpful suggestions
                         st.markdown("### Suggestions to improve your search:")

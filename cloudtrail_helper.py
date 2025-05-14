@@ -5,10 +5,10 @@ import pandas as pd
 import botocore.exceptions
 import os
 import json
-from query_helper import QueryHelper
 from typing import List, Dict, Any, Optional, Tuple, Union, TypedDict
 from dotenv import load_dotenv
 from pathlib import Path
+from cloudtrail_query import CloudTrailQuery
 
 class EventData(TypedDict):
     timestamp: str
@@ -17,6 +17,9 @@ class EventData(TypedDict):
     resource: str
     request_parameters: Dict[str, Any]
     response_elements: Dict[str, Any]
+    user: str
+    errorCode: str
+    errorMessage: str
 
 class UserInfo(TypedDict):
     username: str
@@ -124,7 +127,7 @@ class CloudTrailHelper:
             self.sso_admin_client = boto3.client("sso-admin")
             
         self.log_group: str = log_group
-        self.query_helper = QueryHelper()
+        self.query_helper = CloudTrailQuery()
     
     def run_insights_query(self, query: str, start_time: int, end_time: int) -> Optional[List[Dict[str, Any]]]:
         """Run a CloudWatch Logs Insights query and return the results.
@@ -175,7 +178,7 @@ class CloudTrailHelper:
             - List of raw event dictionaries
         """
         # Use ChatGPT to translate the natural language query
-        insights_query = self.query_helper.translate_to_cloudtrail_query(query)
+        insights_query = self.query_helper.generate_query(query, hours=hours)
         if not insights_query:
             return "Error translating query. Please try rephrasing your question.", []
         

@@ -1,4 +1,4 @@
-# CloudTrail Intelligence Dashboard - Project Setup PRD
+# CloudTrail Intelligence Dashboard - Project Setup
 
 ## 1. Project Overview
 

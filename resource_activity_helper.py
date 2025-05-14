@@ -99,7 +99,9 @@ class ResourceActivityHelper:
                     'action': event.get('event_name', 'Unknown'),
                     'resource': resource_info,
                     'source_ip': event.get('source_ip', 'Unknown'),
-                    'request_parameters': event.get('request_parameters', {})
+                    'request_parameters': event.get('request_parameters', {}),
+                    'errorCode': event.get('errorCode', ''),
+                    'errorMessage': event.get('errorMessage', '')
                 })
             except Exception as e:
                 # Silently continue on error to prevent error messages from showing

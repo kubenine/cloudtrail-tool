@@ -32,7 +32,10 @@ class SSOActivityHelper:
             events_data.append({
                 'timestamp': event['timestamp'],
                 'action': action_desc,
-                'source_ip': event['source_ip']
+                'source_ip': event['source_ip'],
+                'user': event.get('user', 'Unknown'),
+                'errorCode': event.get('errorCode', ''),
+                'errorMessage': event.get('errorMessage', '')
             })
 
         prompt = f"""Create a natural, conversational summary of AWS CloudTrail events for SSO user '{username}'.
