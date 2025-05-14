@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 from dotenv import load_dotenv
 from pathlib import Path
@@ -36,8 +36,17 @@ class QueryHelper:
             
         self.client = OpenAI(api_key=api_key)
 
-    def translate_to_cloudtrail_query(self, natural_query):
-        """Convert natural language query to CloudWatch Logs Insights query."""
+    def translate_to_cloudtrail_query(self, natural_query, hours: int = 24):
+        """Convert natural language query to CloudWatch Logs Insights query.
+        
+        Args:
+            natural_query: The natural language query to convert
+            hours: Number of hours to look back (from slider)
+        """
+        # Calculate the time range in milliseconds
+        end_time = int(datetime.now().timestamp() * 1000)
+        start_time = int((datetime.now() - timedelta(hours=hours)).timestamp() * 1000)
+        
         prompt = f"""Convert this natural language query into a valid CloudWatch Logs Insights query.
 The query should search CloudTrail logs and extract relevant information.
 Focus on identifying the service (S3, EC2, IAM), action (create, delete, modify), and resource type.
@@ -60,6 +69,12 @@ Important rules:
 15. Include relevant AWS service names in filters
 16. Always use 'eventName' instead of 'event_type' for event filtering
 17. Use parse @message as @message when filtering on specific fields
+18. Always include time range filter based on @timestamp
+
+Time Range:
+- Start Time (Unix ms): {start_time}
+- End Time (Unix ms): {end_time}
+- Looking back {hours} hours
 
 Common query patterns:
 - "show all" or "list all" -> Return all events with basic filtering
@@ -77,24 +92,28 @@ Example formats:
 1. General query:
 fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters, errorCode, errorMessage, eventName
 | parse @message as @message
+| filter @timestamp >= {start_time} and @timestamp <= {end_time}
 | filter @message like /.*/
 | sort @timestamp desc
 
 2. Service specific:
 fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters, errorCode, errorMessage, eventName
 | parse @message as @message
+| filter @timestamp >= {start_time} and @timestamp <= {end_time}
 | filter @message like /S3/
 | sort @timestamp desc
 
 3. Action specific:
 fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters, errorCode, errorMessage, eventName
 | parse @message as @message
+| filter @timestamp >= {start_time} and @timestamp <= {end_time}
 | filter eventName like /Create/
 | sort @timestamp desc
 
 4. User specific:
 fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, userIdentity.type, requestParameters, errorCode, errorMessage, eventName
 | parse @message as @message
+| filter @timestamp >= {start_time} and @timestamp <= {end_time}
 | filter userIdentity.userName like /admin/
 | sort @timestamp desc"""
 
@@ -106,7 +125,8 @@ fields @timestamp, @message, userIdentity.userName, userIdentity.principalId, us
 Keep queries simple and focused. Handle both specific and general queries effectively.
 For simple or vague queries, return a more general query that will show relevant results.
 For service names (S3, EC2, etc.), always include variations in the filter (e.g., 's3' and 'S3').
-Always use 'eventName' instead of 'event_type' in your queries."""},
+Always use 'eventName' instead of 'event_type' in your queries.
+Always include time range filters using @timestamp."""},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3
@@ -136,9 +156,17 @@ Always use 'eventName' instead of 'event_type' in your queries."""},
             if 'parse @message' not in query:
                 query = query.replace('filter', '| parse @message as @message\n| filter')
             
+            # Ensure time range filter is present
+            time_filter = f"| filter @timestamp >= {start_time} and @timestamp <= {end_time}"
+            if '@timestamp >=' not in query:
+                if '| filter' in query:
+                    query = query.replace('| filter', f'{time_filter}\n| filter')
+                else:
+                    query = query + f'\n{time_filter}'
+            
             # For general queries without specific filters, add a basic filter
             if 'filter' not in query.lower():
-                query = query.replace('fields @timestamp, @message', 'fields @timestamp, @message\n| parse @message as @message\n| filter @message like /.*/')
+                query = query.replace('fields @timestamp, @message', f'fields @timestamp, @message\n| parse @message as @message\n{time_filter}\n| filter @message like /.*/')
             
             # Replace any instances of event_type with eventName
             query = query.replace('event_type', 'eventName')
