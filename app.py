@@ -96,34 +96,44 @@ with tab1:
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔍 Show IAM user creations in last week"):
-            query = "Show me all IAM users created in the last week"
+        if st.button("🔍 Show cluster interactions"):
+            query = "Who interacted with EKS or ECS clusters in the last 24 hours?"
             st.session_state['query'] = query
             st.rerun()
             
-        if st.button("🪣 List S3 bucket operations today"):
-            query = "What S3 bucket operations happened today?"
+        if st.button("🪣 List S3 bucket operations"):
+            query = "Show me all S3 bucket operations including creation, deletion, and modifications"
             st.session_state['query'] = query
             st.rerun()
             
-        if st.button("🛑 Show EC2 instance stops yesterday"):
-            query = "Who stopped any EC2 instances yesterday?"
+        if st.button("🛑 Show EC2 instance changes"):
+            query = "What changes were made to EC2 instances, including starts, stops, and terminations?"
+            st.session_state['query'] = query
+            st.rerun()
+            
+        if st.button("🔒 Show security changes"):
+            query = "Show me all security-related changes including IAM, security groups, and KMS key operations"
             st.session_state['query'] = query
             st.rerun()
     
     with col2:
-        if st.button("🔒 Show security group changes"):
-            query = "Who modified security groups recently?"
-            st.session_state['query'] = query
-            st.rerun()
-            
         if st.button("👤 Show root user activities"):
-            query = "Show me all actions performed by root user"
+            query = "Show me all actions performed by the root user account"
             st.session_state['query'] = query
             st.rerun()
             
         if st.button("⏰ Show today's activities"):
-            query = "What happened today in my AWS account?"
+            query = "What happened today in my AWS account? Show me all significant changes"
+            st.session_state['query'] = query
+            st.rerun()
+            
+        if st.button("🔐 Show IAM changes"):
+            query = "Show me all IAM-related changes including user, role, and policy modifications"
+            st.session_state['query'] = query
+            st.rerun()
+            
+        if st.button("🌐 Show network changes"):
+            query = "Show me all network-related changes including VPC, subnet, and security group modifications"
             st.session_state['query'] = query
             st.rerun()
     
