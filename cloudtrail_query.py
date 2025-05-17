@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import time
 from typing import Optional, List, Dict, Any, Tuple
 import re
+from utils import token_counter
 
 class CloudTrailQuery:
     def __init__(self):
@@ -41,6 +42,9 @@ class CloudTrailQuery:
         Returns:
             CloudWatch Logs Insights query string or None if generation fails
         """
+        # Reset token counter for new query
+        token_counter.reset()
+        
         # Calculate time range
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=hours)
@@ -78,6 +82,9 @@ Respond with ONLY the query, nothing else."""
                 temperature=0.3,
                 max_tokens=500
             )
+            
+            # Update token usage
+            token_counter.update_from_response(response)
             
             return response.choices[0].message.content.strip()
             

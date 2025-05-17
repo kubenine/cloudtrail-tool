@@ -5,6 +5,7 @@ from cloudtrail_helper import CloudTrailHelper
 from user_activity_helper import UserActivityHelper
 from sso_activity_helper import SSOActivityHelper
 from resource_activity_helper import ResourceActivityHelper
+from utils import token_counter
 import os
 from dotenv import load_dotenv
 
@@ -155,57 +156,62 @@ with tab1:
                 with st.spinner("Searching CloudTrail logs..."):
                     summary, results = cloudtrail.search_events(query, hours=time_window)
                     
-                    if results:
-                        st.success(f"Search completed! Found {len(results)} results.")
+                st.write(summary)
+                
+                # Display token usage
+                st.info(token_counter.get_usage_str())
+                
+                if results:
+                    st.success(f"Search completed! Found {len(results)} results.")
+                    
+                    # Display the natural language summary
+                    st.markdown("### Summary")
+                    st.write(summary)
+                    
+                    # Display the generated query in a collapsible section
+                    with st.expander("View Generated CloudWatch Logs Insights Query"):
+                        st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
+                    
+                    # Display raw data in a collapsible section
+                    with st.expander("View Raw Data"):
+                        # Convert results to a format that can be safely displayed
+                        display_results = []
+                        for result in results:
+                            display_result = {
+                                'timestamp': result['timestamp'],
+                                'user': result.get('user', 'Unknown'),
+                                'action': result['event_name'],
+                                'resource': result['resource'],
+                                'source_ip': result['source_ip'],
+                                'request_parameters': str(result.get('request_parameters', ''))  # Convert to string
+                            }
+                            display_results.append(display_result)
                         
-                        # Display the natural language summary
-                        st.markdown("### Summary")
-                        st.write(summary)
-                        
-                        # Display the generated query in a collapsible section
-                        with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
-                        
-                        # Display raw data in a collapsible section
-                        with st.expander("View Raw Data"):
-                            # Convert results to a format that can be safely displayed
-                            display_results = []
-                            for result in results:
-                                display_result = {
-                                    'timestamp': result['timestamp'],
-                                    'user': result.get('user', 'Unknown'),
-                                    'action': result['event_name'],
-                                    'resource': result['resource'],
-                                    'source_ip': result['source_ip'],
-                                    'request_parameters': str(result.get('request_parameters', ''))  # Convert to string
-                                }
-                                display_results.append(display_result)
-                            
-                            df = pd.DataFrame(display_results)
-                            st.dataframe(df)
-                    else:
-                        # Enhanced empty results handling
-                        st.info("🔍 No events found matching your query.")
-                        
-                        # Show the generated query for transparency
-                        with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
-                        
-                        # Provide helpful suggestions
-                        st.markdown("### Suggestions to improve your search:")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("**Try adjusting the time window:**")
-                            st.markdown("- Increase the time window in the sidebar")
-                            st.markdown("- Try a different time period (e.g., 'today' instead of 'last week')")
-                            st.markdown("- To query a specific user, give their name with single quotes (e.g., 'John Doe')")
-                        
-                        with col2:
-                            st.markdown("**Try modifying your query:**")
-                            st.markdown("- Use more general terms")
-                            st.markdown("- Check for typos or specific resource names")
-                            st.markdown("- Try one of the example queries above")
+                        df = pd.DataFrame(display_results)
+                        st.dataframe(df)
+                else:
+                    # Enhanced empty results handling
+                    st.info("🔍 No events found matching your query.")
+                    
+                    # Show the generated query for transparency
+                    with st.expander("View Generated CloudWatch Logs Insights Query"):
+                        st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
+                    
+                    # Provide helpful suggestions
+                    st.markdown("### Suggestions to improve your search:")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Try adjusting the time window:**")
+                        st.markdown("- Increase the time window in the sidebar")
+                        st.markdown("- Try a different time period (e.g., 'today' instead of 'last week')")
+                        st.markdown("- To query a specific user, give their name with single quotes (e.g., 'John Doe')")
+                    
+                    with col2:
+                        st.markdown("**Try modifying your query:**")
+                        st.markdown("- Use more general terms")
+                        st.markdown("- Check for typos or specific resource names")
+                        st.markdown("- Try one of the example queries above")
             except Exception as e:
                 st.error(f"Error performing search: {str(e)}")
         else:
@@ -242,6 +248,9 @@ with tab2:
                             st.markdown("### Summary")
                             summary = user_activity.format_user_activity(events, selected_user)
                             st.write(summary)
+                            
+                            # Display token usage
+                            st.info(token_counter.get_usage_str())
                             
                             st.markdown("---")
                             
@@ -325,6 +334,9 @@ with tab3:
                             st.markdown("### Summary")
                             summary = sso_activity.format_sso_activity(events, selected_user)
                             st.write(summary)
+                            
+                            # Display token usage
+                            st.info(token_counter.get_usage_str())
                             
                             st.markdown("---")
                             
@@ -420,6 +432,9 @@ with tab4:
                         selected_resource_type if selected_resource_type != "All" else None
                     )
                     st.write(summary)
+                    
+                    # Display token usage
+                    st.info(token_counter.get_usage_str())
                     
                     st.markdown("---")
                     
