@@ -73,6 +73,108 @@ Ensure your AWS IAM user/role has the following permissions:
 - `iam:ListUsers`
 - `cloudtrail:LookupEvents`
 - `cloudtrail:GetTrail`
+- `identitystore:ListUsers`
+- `sso-admin:ListInstances`
+
+## 📋 SSO Users Setup
+
+1. **Create SSO Users Script**
+   Create a file named `fetch_sso_users.py` in the project root:
+   ```python
+   import boto3
+   import json
+   import os
+   from dotenv import load_dotenv
+
+   def fetch_sso_users():
+       # Load environment variables
+       load_dotenv()
+
+       # Initialize AWS clients
+       sso_admin = boto3.client('sso-admin')
+       identity_store = boto3.client('identitystore')
+
+       try:
+           # Get the Identity Store ID from SSO instance
+           instances = sso_admin.list_instances()
+           if not instances['Instances']:
+               raise Exception("No SSO instance found")
+           
+           identity_store_id = instances['Instances'][0]['IdentityStoreId']
+
+           # Fetch users from Identity Store
+           users = []
+           paginator = identity_store.get_paginator('list_users')
+           
+           for page in paginator.paginate(IdentityStoreId=identity_store_id):
+               for user in page['Users']:
+                   # Get user's email
+                   emails = identity_store.list_user_attributes(
+                       IdentityStoreId=identity_store_id,
+                       UserId=user['UserId'],
+                       AttributePath='emails'
+                   )
+                   
+                   user_info = {
+                       'UserName': user['UserName'],
+                       'UserId': user['UserId'],
+                       'DisplayName': f"{user.get('Name', {}).get('GivenName', '')} {user.get('Name', {}).get('FamilyName', '')}".strip(),
+                       'Emails': emails.get('Attributes', [])
+                   }
+                   users.append(user_info)
+
+           # Save users to JSON file
+           with open('users.json', 'w') as f:
+               json.dump({'Users': users}, f, indent=2)
+               
+           print(f"Successfully fetched and saved {len(users)} SSO users to users.json")
+
+       except Exception as e:
+           print(f"Error fetching SSO users: {str(e)}")
+
+   if __name__ == "__main__":
+       fetch_sso_users()
+   ```
+
+2. **Run the Script**
+   ```bash
+   # Make sure you have AWS credentials configured
+   python fetch_sso_users.py
+   ```
+   This script will:
+   - Connect to your AWS SSO instance
+   - Fetch all SSO users and their details
+   - Save the user information in `users.json`
+
+3. **Verify the Output**
+   Check that `users.json` was created with the expected format:
+   ```json
+   {
+       "Users": [
+           {
+               "UserName": "user@example.com",
+               "UserId": "user-id",
+               "DisplayName": "User Name",
+               "Emails": [
+                   {
+                       "Value": "user@example.com",
+                       "Type": "work",
+                       "Primary": true
+                   }
+               ]
+           }
+       ]
+   }
+   ```
+
+4. **Schedule Regular Updates**
+   - Set up a cron job to run the script periodically
+   - Example cron entry (runs daily at midnight):
+     ```bash
+     0 0 * * * cd /path/to/project && python fetch_sso_users.py
+     ```
+
+Note: The `users.json` file is used by the dashboard to display and track SSO user activities. Make sure to keep it updated as users are added or removed from your AWS SSO.
 
 ## 📋 Usage Guide
 
@@ -95,8 +197,8 @@ Ensure your AWS IAM user/role has the following permissions:
 cloudtrail-project/
 ├── app.py              # Main Streamlit application
 ├── requirements.txt    # Python dependencies
-├── .env               # Environment variables
-└── src/               # Source code directory
+├── .env                # Environment variables
+└── helpers/            # Helpers directory
 ```
 
 ### Running Tests
@@ -135,6 +237,6 @@ Common issues and solutions:
 ## 📞 Support
 
 For support, please:
-1. Check the [Issues](https://github.com/yourusername/cloudtrail-project/issues) section
+1. Check the [Issues](https://github.com/kubenine/cloudtrail-project/issues) section
 2. Create a new issue if your problem isn't already listed
 3. Include detailed information about your setup and the problem you're experiencing
