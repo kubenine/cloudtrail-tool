@@ -46,8 +46,8 @@ def display_token_metrics():
     # Display detailed cost breakdown
     st.info(f"""
     💰 Cost Breakdown:
-    • Input: {token_counter.prompt_tokens:,} tokens × $10/M = ${costs['input_cost']:.4f}
-    • Output: {token_counter.completion_tokens:,} tokens × $30/M = ${costs['output_cost']:.4f}
+    • Input: {token_counter.prompt_tokens:,} tokens × $2M = ${costs['input_cost']:.4f}
+    • Output: {token_counter.completion_tokens:,} tokens × $8/M = ${costs['output_cost']:.4f}
     • Total Cost: ${costs['total_cost']:.4f}
     """)
 
