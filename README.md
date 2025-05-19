@@ -57,24 +57,65 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
    OPENAI_API_KEY=your_openai_api_key
    ```
 
-5. **Launch the Application**
+5. **Configure AWS Services**
+
+   a. **Enable CloudTrail**
+   ```bash
+   aws cloudtrail create-trail \
+       --name "MyCloudTrail" \
+       --s3-bucket-name "my-cloudtrail-logs" \
+       --include-global-service-events \
+       --is-multi-region-trail
+   ```
+
+   b. **Set Up CloudWatch Logs**
+   ```bash
+   # Create Log Group
+   aws logs create-log-group --log-group-name "/aws/cloudtrail"
+
+   # Set Retention Policy (optional)
+   aws logs put-retention-policy \
+       --log-group-name "/aws/cloudtrail" \
+       --retention-in-days 30
+
+   # Configure CloudTrail to CloudWatch Integration
+   aws cloudtrail update-trail \
+       --name "MyCloudTrail" \
+       --cloud-watch-logs-log-group-arn "arn:aws:logs:region:account-id:log-group:/aws/cloudtrail" \
+       --cloud-watch-logs-role-arn "arn:aws:iam::account-id:role/CloudTrailCloudWatchLogsRole"
+   ```
+
+6. **Launch the Application**
    ```bash
    streamlit run app.py
    ```
 
-6. **Access the Dashboard**
+7. **Access the Dashboard**
    Open your browser and navigate to `http://localhost:8501`
 
 ## 🔑 Required AWS Permissions
 
 Ensure your AWS IAM user/role has the following permissions:
-- `logs:StartQuery`
-- `logs:GetQueryResults`
-- `iam:ListUsers`
-- `cloudtrail:LookupEvents`
-- `cloudtrail:GetTrail`
-- `identitystore:ListUsers`
-- `sso-admin:ListInstances`
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:StartQuery",
+                "logs:GetQueryResults",
+                "logs:DescribeLogGroups",
+                "cloudtrail:LookupEvents",
+                "iam:ListUsers",
+                "identitystore:ListUsers",
+                "sso-admin:ListInstances"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
 
 ## 📋 SSO Users Setup
 
@@ -240,3 +281,4 @@ For support, please:
 1. Check the [Issues](https://github.com/kubenine/cloudtrail-project/issues) section
 2. Create a new issue if your problem isn't already listed
 3. Include detailed information about your setup and the problem you're experiencing
+
