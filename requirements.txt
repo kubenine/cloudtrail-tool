@@ -1,9 +1,31 @@
+# AWS SDK
 boto3>=1.37.1
-streamlit==1.32.2
-openai>=1.12.0
-python-dotenv==1.0.1
-pandas==2.2.1
-mypy>=1.8.0
+botocore>=1.34.0
 types-boto3>=1.0.0
-types-python-dotenv>=1.0.0
+
+# Web Framework
+streamlit==1.32.2
+
+# Data Processing
+pandas==2.2.1
 types-pandas>=2.2.1
+
+# OpenAI Integration
+openai>=1.12.0
+
+# Environment and Configuration
+python-dotenv==1.0.1
+types-python-dotenv>=1.0.0
+
+# Type Checking
+mypy>=1.8.0
+typing-extensions>=4.9.0
+
+# Date and Time
+pytz>=2024.1
+
+# Development Tools
+black>=24.2.0  # Code formatting
+isort>=5.13.0  # Import sorting
+flake8>=7.0.0  # Code linting
+pytest>=8.0.0  # Testing

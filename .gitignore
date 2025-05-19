@@ -1,10 +1,15 @@
 # Environment and secrets
 .env
+.env.*
 .venv/
 venv/
+env/
 credentials.json
 *.pem
 *.key
+*.crt
+*.cert
+*.p12
 
 # Python
 __pycache__/
@@ -27,6 +32,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+pytest.xml
+coverage.xml
+.coverage
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -37,16 +46,22 @@ sso.ipynb
 .aws/
 aws.json
 aws-credentials.json
+aws-config.json
+.aws-sam/
+users.json
+cloudtrail-*.json
+*_credentials.json
+*_config.json
 
 # Data files
 *.csv
 *.json
 !package.json
 !tsconfig.json
-users.json
 *.log
 *.sqlite
 *.db
+*.dat
 
 # IDE
 .idea/
@@ -54,6 +69,11 @@ users.json
 *.swp
 *.swo
 .DS_Store
+*.sublime-*
+.project
+.settings/
+.classpath
+*.code-workspace
 
 # Large files
 *.so
@@ -61,6 +81,15 @@ users.json
 *.dll
 *.pyd
 pyarrow/
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
 
-.venv/
-.venv/
+# Documentation and notes
+NOTES
+NOTES.md
+TODO
+TODO.md
+setup.md

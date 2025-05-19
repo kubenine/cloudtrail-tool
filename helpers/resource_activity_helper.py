@@ -2,6 +2,7 @@ import os
 from openai import OpenAI
 import json
 from collections import defaultdict
+from utils import token_counter
 
 class ResourceActivityHelper:
     def __init__(self):
@@ -72,6 +73,9 @@ class ResourceActivityHelper:
         """Format resource activity events into a natural language summary."""
         if not events:
             return f"No activity found for {self.aws_services[service]['name']} resources in the specified time window."
+        
+        # Reset token counter for new query
+        token_counter.reset()
 
         # Prepare events for ChatGPT
         events_data = []
@@ -144,6 +148,10 @@ Return ONLY the bullet-pointed summary, nothing else."""
                 ],
                 temperature=0.7
             )
+            
+            # Update token usage
+            token_counter.update_from_response(response)
+            
             summary = response.choices[0].message.content.strip()
             
             # Ensure each bullet point is on a new line

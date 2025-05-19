@@ -1,12 +1,55 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-from cloudtrail_helper import CloudTrailHelper
-from user_activity_helper import UserActivityHelper
-from sso_activity_helper import SSOActivityHelper
-from resource_activity_helper import ResourceActivityHelper
+from helpers.cloudtrail_helper import CloudTrailHelper
+from helpers.cloudtrail_query import CloudTrailQuery
+from helpers.user_activity_helper import UserActivityHelper
+from helpers.sso_activity_helper import SSOActivityHelper
+from helpers.resource_activity_helper import ResourceActivityHelper
+from utils import token_counter
 import os
 from dotenv import load_dotenv
+from collections import defaultdict
+
+# Add this function at the top of app.py, after the imports
+def display_token_metrics():
+    """Display token usage metrics and cost information."""
+    costs = token_counter.calculate_cost()
+    
+    # Create three columns for the metrics
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="Total Tokens",
+            value=f"{token_counter.total_tokens:,}",
+            delta="High Usage" if token_counter.total_tokens > 3000 else None,
+            delta_color="inverse"
+        )
+        if token_counter.total_tokens > 3000:
+            st.warning("Limited to 60 events due to high token usage")
+    
+    with col2:
+        st.metric(
+            label="Token Breakdown",
+            value=f"Input: {token_counter.prompt_tokens:,}",
+            delta=f"Output: {token_counter.completion_tokens:,}"
+        )
+    
+    with col3:
+        st.metric(
+            label="Total Cost",
+            value=f"${costs['total_cost']:.4f}",
+            help="Based on GPT-4 Turbo pricing: $10/M input, $30/M output tokens"
+        )
+    
+    # Display detailed cost breakdown
+    st.info(f"""
+    💰 Cost Breakdown:
+    • Input: {token_counter.prompt_tokens:,} tokens × $10/M = ${costs['input_cost']:.4f}
+    • Output: {token_counter.completion_tokens:,} tokens × $30/M = ${costs['output_cost']:.4f}
+    • Total Cost: ${costs['total_cost']:.4f}
+    """)
 
 # Page config - MUST BE THE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -85,10 +128,175 @@ time_window = st.sidebar.slider(
 )
 
 # Main content
-tab1, tab2, tab3, tab4 = st.tabs(["Natural Language Search", "IAM User Activity", "SSO User Activity", "Resource Activity"])
+tab1, tab2, tab3, tab4 = st.tabs(["SSO User Activity", "IAM User Activity", "Natural Language Search", "Resource Activity"])
+
+# SSO User Activity Tab
+with tab1:
+    st.header("SSO User Activity")
+    
+    # Get list of SSO users
+    try:
+        with st.spinner("Loading SSO users..."):
+            users = cloudtrail.list_sso_users()
+            if not users:
+                st.warning("No SSO users found. Please ensure you have AWS SSO configured.")
+                st.stop()
+            
+            user_options = {f"{user['display_name']} ({user['email']})": user['username'] for user in users}
+        
+        selected_user = st.selectbox(
+            "Select SSO User",
+            options=list(user_options.keys())
+        )
+        
+        if st.button("View Activity", key="sso_activity_button"):
+            if selected_user:
+                try:
+                    with st.spinner("Fetching user activity..."):
+                        username = user_options[selected_user]
+                        events = cloudtrail.get_sso_user_events(username, hours=time_window)
+                        
+                        if events:
+                            st.success(f"Found {len(events)} events for {selected_user}.")
+                            
+                            # Display events in a more user-friendly format
+                            st.subheader(f"Activity for {selected_user}")
+                            
+                            # Generate and display a natural language summary
+                            st.markdown("### Summary")
+                            summary = sso_activity.format_sso_activity(events, selected_user)
+                            st.write(summary)
+                            
+                            # Display token usage metrics
+                            display_token_metrics()
+                            
+                            st.markdown("---")
+                            
+                            # Group events by date
+                            grouped_events = defaultdict(list)
+                            for event in events:
+                                date = event['timestamp'].split(' ')[0]
+                                grouped_events[date].append(event)
+                            
+                            # Display events by date
+                            for date, day_events in sorted(grouped_events.items(), reverse=True):
+                                st.markdown(f"**{date}**")
+                                for event in day_events:
+                                    # Create a human-readable action description
+                                    action_desc = f"{event['event_name']}"
+                                    if event['resource'] != 'Unknown':
+                                        action_desc += f" on {event['resource']}"
+                                    
+                                    # Create a clean expander title
+                                    expander_title = f"🕒 {event['timestamp'].split(' ')[1]} - {action_desc}"
+                                    
+                                    with st.expander(expander_title):
+                                        # Only show relevant information
+                                        if event['source_ip'] != 'Unknown':
+                                            st.write(f"**From IP:** {event['source_ip']}")
+                                        
+                                        # Only show request parameters if they contain meaningful information
+                                        if event['request_parameters'] and len(str(event['request_parameters'])) > 2:
+                                            st.write("**Details:**")
+                                            st.json(event['request_parameters'])
+                                
+                                st.markdown("---")
+                            
+                            # Display raw data in a collapsible section
+                            with st.expander("View Raw Data"):
+                                df = pd.DataFrame(events)
+                                st.dataframe(df)
+                        else:
+                            st.warning(f"No events found for {selected_user} in the specified time window.")
+                except Exception as e:
+                    st.error(f"Error fetching user activity: {str(e)}")
+            else:
+                st.warning("Please select a user.")
+    except Exception as e:
+        st.error(f"Error loading SSO users: {str(e)}")
+
+# IAM User Activity Tab
+with tab2:
+    st.header("IAM User Activity")
+    
+    # Get list of IAM users
+    try:
+        with st.spinner("Loading IAM users..."):
+            users = cloudtrail.list_iam_users()
+            user_options = {user['username']: user['arn'] for user in users}
+        
+        selected_user = st.selectbox(
+            "Select IAM User",
+            options=list(user_options.keys())
+        )
+        
+        if st.button("View Activity", key="iam_activity_button"):
+            if selected_user:
+                try:
+                    with st.spinner("Fetching user activity..."):
+                        events = cloudtrail.get_user_events(selected_user, hours=time_window)
+                        
+                        if events:
+                            st.success(f"Found {len(events)} events for {selected_user}.")
+                            
+                            # Display events in a more user-friendly format
+                            st.subheader(f"Activity for {selected_user}")
+                            
+                            # Generate and display a natural language summary
+                            st.markdown("### Summary")
+                            summary = user_activity.format_user_activity(events, selected_user)
+                            st.write(summary)
+                            
+                            # Display token usage metrics
+                            display_token_metrics()
+                            
+                            st.markdown("---")
+                            
+                            # Group events by date
+                            grouped_events = defaultdict(list)
+                            for event in events:
+                                date = event['timestamp'].split(' ')[0]
+                                grouped_events[date].append(event)
+                            
+                            # Display events by date
+                            for date, day_events in sorted(grouped_events.items(), reverse=True):
+                                st.markdown(f"**{date}**")
+                                for event in day_events:
+                                    # Create a human-readable action description
+                                    action_desc = f"{event['event_name']}"
+                                    if event['resource'] != 'Unknown':
+                                        action_desc += f" on {event['resource']}"
+                                    
+                                    # Create a clean expander title
+                                    expander_title = f"🕒 {event['timestamp'].split(' ')[1]} - {action_desc}"
+                                    
+                                    with st.expander(expander_title):
+                                        # Only show relevant information
+                                        if event['source_ip'] != 'Unknown':
+                                            st.write(f"**From IP:** {event['source_ip']}")
+                                        
+                                        # Only show request parameters if they contain meaningful information
+                                        if event['request_parameters'] and len(str(event['request_parameters'])) > 2:
+                                            st.write("**Details:**")
+                                            st.json(event['request_parameters'])
+                                
+                                st.markdown("---")
+                            
+                            # Display raw data in a collapsible section
+                            with st.expander("View Raw Data"):
+                                df = pd.DataFrame(events)
+                                st.dataframe(df)
+                        else:
+                            st.warning(f"No events found for {selected_user} in the specified time window.")
+                except Exception as e:
+                    st.error(f"Error fetching user activity: {str(e)}")
+            else:
+                st.warning("Please select a user.")
+    except Exception as e:
+        st.error(f"Error loading IAM users: {str(e)}")
 
 # Natural Language Search Tab
-with tab1:
+with tab3:
     st.header("Natural Language Search")
     
     # Add example queries
@@ -155,222 +363,58 @@ with tab1:
                 with st.spinner("Searching CloudTrail logs..."):
                     summary, results = cloudtrail.search_events(query, hours=time_window)
                     
-                    if results:
-                        st.success(f"Search completed! Found {len(results)} results.")
+                st.success(f"Search completed! Found {len(results)} results.")
+                
+                # Display the natural language summary first
+                st.markdown("### Summary")
+                st.write(summary)
+                
+                # Display token usage metrics
+                display_token_metrics()
+                
+                st.markdown("---")  # Add a visual separator
+                
+                # Continue with the rest of the display (User Activity, etc.)
+                st.markdown("### User Activity")
+                # Group events by user
+                user_events = defaultdict(list)
+                for result in results:
+                    user = result.get('user', 'Unknown')
+                    user_events[user].append(result)
+                
+                # Display activity for each user
+                for user, events in user_events.items():
+                    with st.expander(f"Activity for {user}"):
+                        for event in events:
+                            st.markdown(f"• {event['timestamp']} - {event['event_name']} on {event['resource']}")
+                            if event['source_ip'] != 'Unknown':
+                                st.markdown(f"  - From IP: {event['source_ip']}")
+                    
+                    # Display the generated query in a collapsible section
+                    with st.expander("View Generated CloudWatch Logs Insights Query"):
+                        st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
+                    
+                    # Display raw data in a collapsible section
+                    with st.expander("View Raw Data"):
+                        # Convert results to a format that can be safely displayed
+                        display_results = []
+                        for result in results:
+                            display_result = {
+                                'timestamp': result['timestamp'],
+                                'user': result.get('user', 'Unknown'),
+                                'action': result['event_name'],
+                                'resource': result['resource'],
+                                'source_ip': result['source_ip'],
+                                'request_parameters': str(result.get('request_parameters', ''))  # Convert to string
+                            }
+                            display_results.append(display_result)
                         
-                        # Display the natural language summary
-                        st.markdown("### Summary")
-                        st.write(summary)
-                        
-                        # Display the generated query in a collapsible section
-                        with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
-                        
-                        # Display raw data in a collapsible section
-                        with st.expander("View Raw Data"):
-                            # Convert results to a format that can be safely displayed
-                            display_results = []
-                            for result in results:
-                                display_result = {
-                                    'timestamp': result['timestamp'],
-                                    'user': result.get('user', 'Unknown'),
-                                    'action': result['event_name'],
-                                    'resource': result['resource'],
-                                    'source_ip': result['source_ip'],
-                                    'request_parameters': str(result.get('request_parameters', ''))  # Convert to string
-                                }
-                                display_results.append(display_result)
-                            
-                            df = pd.DataFrame(display_results)
-                            st.dataframe(df)
-                    else:
-                        # Enhanced empty results handling
-                        st.info("🔍 No events found matching your query.")
-                        
-                        # Show the generated query for transparency
-                        with st.expander("View Generated CloudWatch Logs Insights Query"):
-                            st.code(cloudtrail.query_helper.generate_query(query, hours=time_window), language="sql")
-                        
-                        # Provide helpful suggestions
-                        st.markdown("### Suggestions to improve your search:")
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown("**Try adjusting the time window:**")
-                            st.markdown("- Increase the time window in the sidebar")
-                            st.markdown("- Try a different time period (e.g., 'today' instead of 'last week')")
-                            st.markdown("- To query a specific user, give their name with single quotes (e.g., 'John Doe')")
-                        
-                        with col2:
-                            st.markdown("**Try modifying your query:**")
-                            st.markdown("- Use more general terms")
-                            st.markdown("- Check for typos or specific resource names")
-                            st.markdown("- Try one of the example queries above")
+                        df = pd.DataFrame(display_results)
+                        st.dataframe(df)
             except Exception as e:
                 st.error(f"Error performing search: {str(e)}")
         else:
             st.warning("Please enter a search query.")
-
-# IAM User Activity Tab
-with tab2:
-    st.header("IAM User Activity")
-    
-    # Get list of IAM users
-    try:
-        with st.spinner("Loading IAM users..."):
-            users = cloudtrail.list_iam_users()
-            user_options = {user['username']: user['arn'] for user in users}
-        
-        selected_user = st.selectbox(
-            "Select IAM User",
-            options=list(user_options.keys())
-        )
-        
-        if st.button("View Activity", key="iam_activity_button"):
-            if selected_user:
-                try:
-                    with st.spinner("Fetching user activity..."):
-                        events = cloudtrail.get_user_events(selected_user, hours=time_window)
-                        
-                        if events:
-                            st.success(f"Found {len(events)} events for {selected_user}.")
-                            
-                            # Display events in a more user-friendly format
-                            st.subheader(f"Activity for {selected_user}")
-                            
-                            # Generate and display a natural language summary
-                            st.markdown("### Summary")
-                            summary = user_activity.format_user_activity(events, selected_user)
-                            st.write(summary)
-                            
-                            st.markdown("---")
-                            
-                            # Group events by date
-                            from collections import defaultdict
-                            grouped_events = defaultdict(list)
-                            for event in events:
-                                date = event['timestamp'].split(' ')[0]
-                                grouped_events[date].append(event)
-                            
-                            # Display events by date
-                            for date, day_events in sorted(grouped_events.items(), reverse=True):
-                                st.markdown(f"**{date}**")
-                                for event in day_events:
-                                    # Create a human-readable action description
-                                    action_desc = f"{event['event_name']}"
-                                    if event['resource'] != 'Unknown':
-                                        action_desc += f" on {event['resource']}"
-                                    
-                                    # Create a clean expander title
-                                    expander_title = f"🕒 {event['timestamp'].split(' ')[1]} - {action_desc}"
-                                    
-                                    with st.expander(expander_title):
-                                        # Only show relevant information
-                                        if event['source_ip'] != 'Unknown':
-                                            st.write(f"**From IP:** {event['source_ip']}")
-                                        
-                                        # Only show request parameters if they contain meaningful information
-                                        if event['request_parameters'] and len(str(event['request_parameters'])) > 2:
-                                            st.write("**Details:**")
-                                            st.json(event['request_parameters'])
-                                
-                                st.markdown("---")
-                            
-                            # Display raw data in a collapsible section
-                            with st.expander("View Raw Data"):
-                                df = pd.DataFrame(events)
-                                st.dataframe(df)
-                        else:
-                            st.warning(f"No events found for {selected_user} in the specified time window.")
-                except Exception as e:
-                    st.error(f"Error fetching user activity: {str(e)}")
-            else:
-                st.warning("Please select a user.")
-    except Exception as e:
-        st.error(f"Error loading IAM users: {str(e)}")
-
-# SSO User Activity Tab
-with tab3:
-    st.header("SSO User Activity")
-    
-    # Get list of SSO users
-    try:
-        with st.spinner("Loading SSO users..."):
-            users = cloudtrail.list_sso_users()
-            if not users:
-                st.warning("No SSO users found. Please ensure you have AWS SSO configured.")
-                st.stop()
-            
-            user_options = {f"{user['display_name']} ({user['email']})": user['username'] for user in users}
-        
-        selected_user = st.selectbox(
-            "Select SSO User",
-            options=list(user_options.keys())
-        )
-        
-        if st.button("View Activity", key="sso_activity_button"):
-            if selected_user:
-                try:
-                    with st.spinner("Fetching user activity..."):
-                        username = user_options[selected_user]
-                        events = cloudtrail.get_sso_user_events(username, hours=time_window)
-                        
-                        if events:
-                            st.success(f"Found {len(events)} events for {selected_user}.")
-                            
-                            # Display events in a more user-friendly format
-                            st.subheader(f"Activity for {selected_user}")
-                            
-                            # Generate and display a natural language summary
-                            st.markdown("### Summary")
-                            summary = sso_activity.format_sso_activity(events, selected_user)
-                            st.write(summary)
-                            
-                            st.markdown("---")
-                            
-                            # Group events by date
-                            from collections import defaultdict
-                            grouped_events = defaultdict(list)
-                            for event in events:
-                                date = event['timestamp'].split(' ')[0]
-                                grouped_events[date].append(event)
-                            
-                            # Display events by date
-                            for date, day_events in sorted(grouped_events.items(), reverse=True):
-                                st.markdown(f"**{date}**")
-                                for event in day_events:
-                                    # Create a human-readable action description
-                                    action_desc = f"{event['event_name']}"
-                                    if event['resource'] != 'Unknown':
-                                        action_desc += f" on {event['resource']}"
-                                    
-                                    # Create a clean expander title
-                                    expander_title = f"🕒 {event['timestamp'].split(' ')[1]} - {action_desc}"
-                                    
-                                    with st.expander(expander_title):
-                                        # Only show relevant information
-                                        if event['source_ip'] != 'Unknown':
-                                            st.write(f"**From IP:** {event['source_ip']}")
-                                        
-                                        # Only show request parameters if they contain meaningful information
-                                        if event['request_parameters'] and len(str(event['request_parameters'])) > 2:
-                                            st.write("**Details:**")
-                                            st.json(event['request_parameters'])
-                                
-                                st.markdown("---")
-                            
-                            # Display raw data in a collapsible section
-                            with st.expander("View Raw Data"):
-                                df = pd.DataFrame(events)
-                                st.dataframe(df)
-                        else:
-                            st.warning(f"No events found for {selected_user} in the specified time window.")
-                except Exception as e:
-                    st.error(f"Error fetching user activity: {str(e)}")
-            else:
-                st.warning("Please select a user.")
-    except Exception as e:
-        st.error(f"Error loading SSO users: {str(e)}")
 
 # Resource Activity Tab
 with tab4:
@@ -421,10 +465,12 @@ with tab4:
                     )
                     st.write(summary)
                     
+                    # Display token usage metrics
+                    display_token_metrics()
+                    
                     st.markdown("---")
                     
                     # Group events by date
-                    from collections import defaultdict
                     grouped_events = defaultdict(list)
                     for event in results:
                         date = event['timestamp'].split(' ')[0]

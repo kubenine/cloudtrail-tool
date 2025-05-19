@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from openai import OpenAI
 import json
 from collections import defaultdict
+from utils import token_counter, sample_events
 
 class SSOActivityHelper:
     def __init__(self) -> None:
@@ -20,6 +21,12 @@ class SSOActivityHelper:
         """
         if not events:
             return "No activity found for this SSO user in the specified time window."
+        
+        # Reset token counter for new query
+        token_counter.reset()
+        
+        # sample events - to avoid token limits
+        events = sample_events(events, 60)
         
         # Prepare events for ChatGPT
         events_data: List[Dict[str, str]] = []
@@ -69,6 +76,10 @@ Return ONLY the bullet-pointed summary, nothing else."""
                 ],
                 temperature=0.7
             )
+            
+            # Update token usage
+            token_counter.update_from_response(response)
+            
             summary = response.choices[0].message.content.strip()
             
             # Ensure each bullet point is on a new line

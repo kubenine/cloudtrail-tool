@@ -8,7 +8,8 @@ import json
 from typing import List, Dict, Any, Optional, Tuple, Union, TypedDict
 from dotenv import load_dotenv
 from pathlib import Path
-from cloudtrail_query import CloudTrailQuery
+from .cloudtrail_query import CloudTrailQuery
+from utils import sample_events
 
 class EventData(TypedDict):
     timestamp: str
@@ -324,9 +325,12 @@ class CloudTrailHelper:
                 except Exception:
                     continue
             
+            # Sample the formatted results before formatting
+            sampled_results = sample_events(formatted_results)
+            
             # Format the results using ChatGPT
-            summary = self.query_helper.format_results(formatted_results)
-            return summary, formatted_results
+            summary = self.query_helper.format_results(sampled_results)
+            return summary, sampled_results
             
         except Exception:
             return "Error executing query. Please try again.", []
@@ -436,7 +440,9 @@ class CloudTrailHelper:
                     print(f"Error parsing event: {str(e)}")
                     continue
             
-            return formatted_results
+            # Sample the formatted results before returning
+            return sample_events(formatted_results)
+            
         except Exception as e:
             raise Exception(f"Error getting user events: {str(e)}")
 
@@ -546,7 +552,9 @@ class CloudTrailHelper:
                     print(f"Error parsing event: {str(e)}")
                     continue
             
-            return formatted_results
+            # Sample the formatted results before returning
+            return sample_events(formatted_results)
+            
         except Exception as e:
             raise Exception(f"Error getting SSO user events: {str(e)}")
 
@@ -554,8 +562,13 @@ class CloudTrailHelper:
 
 if __name__ == "__main__":
     cloudtrail_helper = CloudTrailHelper()
-    cloudtrail_helper.run_insights_query(
-        "fields @timestamp, @message | filter @message like /jason.davis/",
-        'sdf',
-        'sdf'
+    start_time = int((datetime.now() - timedelta(hours=24)).timestamp() * 1000)
+    end_time = int(datetime.now().timestamp() * 1000)   
+    results = cloudtrail_helper.run_insights_query(
+        "fields @timestamp, @message | filter @message like /vikas/",
+        start_time,
+        end_time
     )
+    for result in results:
+        event = json.loads(result[1]['value'])
+        print(json.dumps(event, indent=4))
