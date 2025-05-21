@@ -1,3 +1,0 @@
-Limit number of events sent to AI - Ensure there's a way to communicate to user that we limited the events processed to avoid high usage of tokens
-
-After every query - print the number of tokens consumed in request and response - print estimated cost based on tokens consumed
