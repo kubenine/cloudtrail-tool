@@ -139,9 +139,9 @@ Write a clear, natural summary that:
 Return ONLY the bullet-pointed summary, nothing else."""
 
         try:
-            # Use gpt-4-turbo for resource activity summaries as it provides better understanding of AWS services and actions
+            # Use gpt-4.1 for resource activity summaries as it provides better understanding of AWS services and actions
             response = self.client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": f"You are a friendly AWS expert explaining {self.aws_services[service]['name']} resource activity in simple, conversational language using bullet points. Always identify who performed each action and focus on describing the resources and actions in detail."},
                     {"role": "user", "content": prompt}

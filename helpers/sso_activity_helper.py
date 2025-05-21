@@ -69,7 +69,7 @@ Return ONLY the bullet-pointed summary, nothing else."""
 
         try:
             response = self.client.chat.completions.create(
-                model="gpt-4-turbo",
+                model="gpt-4.1",
                 messages=[
                     {"role": "system", "content": "You are a friendly AWS expert explaining SSO user activity in simple, conversational language using bullet points."},
                     {"role": "user", "content": prompt}

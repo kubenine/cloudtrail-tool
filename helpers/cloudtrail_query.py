@@ -20,7 +20,7 @@ class CloudTrailQuery:
         if not api_key:
             raise ValueError("OpenAI API key not found in environment variables")
         self.client = openai.OpenAI(api_key=api_key)
-        self.model = "gpt-4"  # Using GPT-4 model
+        self.model = "gpt-4.1"
         self.max_retries = 3
         
         # Initialize AWS clients with error handling
