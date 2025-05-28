@@ -1,14 +1,13 @@
 from dotenv import load_dotenv
 import openai
-import boto3
 import os
 import json
-from datetime import datetime, timedelta
 import time
-from typing import Optional, List, Dict, Any, Tuple
-import re
-from utils import token_counter
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
 from collections import defaultdict
+from utils import token_counter
+from .aws_auth import AWSAuth
 
 class CloudTrailQuery:
     def __init__(self):
@@ -25,12 +24,12 @@ class CloudTrailQuery:
         
         # Initialize AWS clients with error handling
         try:
-            self.cloudtrail = boto3.client('cloudtrail')
-            self.logs = boto3.client('logs')
+            self.aws_auth = AWSAuth()
+            self.cloudtrail = self.aws_auth.create_client('cloudtrail')
+            self.logs = self.aws_auth.create_client('logs')
         except Exception as e:
             print(f"Error initializing AWS clients: {str(e)}")
-            print("Please ensure you have the required AWS SDK dependencies installed:")
-            print("pip install boto3 pandas pyarrow")
+            print("Please ensure you have valid AWS credentials configured.")
             raise
 
     def generate_query(self, query: str, hours: int = 24) -> Optional[str]:

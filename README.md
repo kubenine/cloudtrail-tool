@@ -13,30 +13,20 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-- Python 3.8 or higher
-- AWS Account with appropriate permissions
-- OpenAI API key
-- Git
-
-### Step-by-Step Setup
-
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/yourusername/cloudtrail-project.git
+   git clone <repository-url>
    cd cloudtrail-project
    ```
 
-2. **Set Up Python Virtual Environment**
+2. **Create Virtual Environment**
    ```bash
-   # Create virtual environment
    python -m venv .venv
-
-   # Activate virtual environment
-   # On macOS/Linux:
+   
+   # On Linux/Mac
    source .venv/bin/activate
-   # On Windows:
+   
+   # On Windows
    .venv\Scripts\activate
    ```
 
@@ -45,17 +35,31 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
    pip install -r requirements.txt
    ```
 
-4. **Configure Environment Variables**
+4. **Configure AWS Authentication**
+   
+   The application supports multiple AWS authentication methods (in order of preference):
+   
+   **Option A: Default AWS Authentication (Recommended)**
+   - Use AWS CLI: `aws configure`
+   - Use IAM roles (if running on EC2/ECS/Lambda)
+   - Use AWS SSO: `aws sso login`
+   - Use environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+   
+   **Option B: Manual Credentials via .env file**
    Create a `.env` file in the project root:
    ```bash
-   # AWS Credentials
+   # AWS Credentials (optional - only if not using default auth)
    AWS_ACCESS_KEY_ID=your_aws_access_key
    AWS_SECRET_ACCESS_KEY=your_aws_secret_key
    AWS_DEFAULT_REGION=your_aws_region
 
-   # OpenAI API
+   # OpenAI API (required for natural language features)
    OPENAI_API_KEY=your_openai_api_key
    ```
+   
+   **Option C: Manual Override via UI**
+   - Use the "Manual Override" option in the sidebar
+   - Enter credentials directly in the web interface
 
 5. **Configure AWS Services**
 
@@ -92,6 +96,30 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
 
 7. **Access the Dashboard**
    Open your browser and navigate to `http://localhost:8501`
+
+## 🔐 AWS Authentication
+
+The application uses a flexible authentication system that automatically detects and uses the best available AWS credentials:
+
+### Authentication Priority Order:
+1. **Explicit credentials** from environment variables or .env file
+2. **AWS CLI credentials** (`~/.aws/credentials`)
+3. **IAM roles** (when running on AWS infrastructure)
+4. **AWS SSO credentials**
+5. **Instance metadata** (EC2 instances)
+
+### Authentication Status:
+- The sidebar shows your current authentication method
+- Green checkmark (✅): Using explicit credentials
+- Blue info (🔄): Using default AWS authentication
+- Red error (❌): No valid credentials found
+
+### Troubleshooting Authentication:
+If you see authentication errors:
+1. Check the sidebar for specific error messages
+2. Try running `aws sts get-caller-identity` to test your AWS setup
+3. Use the "Manual Override" option in the sidebar as a fallback
+4. Ensure your AWS credentials have the required permissions (see below)
 
 ## 🔑 Required AWS Permissions
 

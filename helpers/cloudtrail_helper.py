@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional, Tuple, Union, TypedDict
 from dotenv import load_dotenv
 from pathlib import Path
 from .cloudtrail_query import CloudTrailQuery
+from .aws_auth import AWSAuth
 from utils import sample_events
 
 class EventData(TypedDict):
@@ -34,98 +35,17 @@ class SSOUserInfo(TypedDict):
 
 class CloudTrailHelper:
     def __init__(self, log_group: str = "/aws/cloudtrail") -> None:
-        # Find and load the .env file
-        env_path = None
+        # Initialize AWS authentication
+        self.aws_auth = AWSAuth()
         
-        # Try current directory
-        if os.path.exists('.env'):
-            env_path = '.env'
-        # Try parent directory
-        elif os.path.exists('../.env'):
-            env_path = '../.env'
-        # Try absolute path from project root
-        else:
-            project_root = Path(__file__).resolve().parent
-            env_file = project_root / '.env'
-            if env_file.exists():
-                env_path = str(env_file)
-        
-        if env_path:
-            load_dotenv(dotenv_path=env_path)
-        else:
-            print("Warning: No .env file found")
-        
-        # Get credentials from environment variables
-        aws_access_key: Optional[str] = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret_key: Optional[str] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        aws_region: Optional[str] = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')  # Default to us-east-1 if not specified
-        session_token: Optional[str] = os.getenv('AWS_SESSION_TOKEN')
-        
-        if not aws_access_key or not aws_secret_key:
-            raise ValueError("AWS credentials not found. Please either:\n1. Check your .env file, or\n2. Enter credentials in the sidebar")
-        
-        # Create session with explicit credentials
-        if aws_access_key and aws_secret_key:
-            if session_token:
-                self.client = boto3.client(
-                    "logs",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    aws_session_token=session_token,
-                    region_name=aws_region
-                )
-                self.iam_client = boto3.client(
-                    "iam",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    aws_session_token=session_token,
-                    region_name=aws_region
-                )
-                self.sso_client = boto3.client(
-                    "identitystore",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    aws_session_token=session_token,
-                    region_name=aws_region
-                )
-                self.sso_admin_client = boto3.client(
-                    "sso-admin",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    aws_session_token=session_token,
-                    region_name=aws_region
-                )
-            else:
-                self.client = boto3.client(
-                    "logs",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    region_name=aws_region
-                )
-                self.iam_client = boto3.client(
-                    "iam",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    region_name=aws_region
-                )
-                self.sso_client = boto3.client(
-                    "identitystore",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    region_name=aws_region
-                )
-                self.sso_admin_client = boto3.client(
-                    "sso-admin",
-                    aws_access_key_id=aws_access_key,
-                    aws_secret_access_key=aws_secret_key,
-                    region_name=aws_region
-                )
-        else:
-            # Fall back to default credential provider chain
-            self.client = boto3.client("logs")
-            self.iam_client = boto3.client("iam")
-            self.sso_client = boto3.client("identitystore")
-            self.sso_admin_client = boto3.client("sso-admin")
+        # Create AWS clients using centralized authentication
+        try:
+            self.client = self.aws_auth.create_client("logs")
+            self.iam_client = self.aws_auth.create_client("iam")
+            self.sso_client = self.aws_auth.create_client("identitystore")
+            self.sso_admin_client = self.aws_auth.create_client("sso-admin")
+        except Exception as e:
+            raise ValueError(f"Failed to initialize AWS clients. Please check your AWS credentials. Error: {str(e)}")
             
         self.log_group: str = log_group
         self.query_helper = CloudTrailQuery()
@@ -163,7 +83,7 @@ class CloudTrailHelper:
             return result['results']
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == 'InvalidClientTokenId':
-                raise Exception("Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the .env file.")
+                raise Exception("Invalid AWS credentials. Please check your AWS credentials configuration.")
             raise
 
     def search_events(self, query: str, hours: int = 24) -> Tuple[str, List[EventData]]:
@@ -355,7 +275,7 @@ class CloudTrailHelper:
             return users
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == 'InvalidClientTokenId':
-                raise Exception("Invalid AWS credentials. Please check your AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the .env file.")
+                raise Exception("Invalid AWS credentials. Please check your AWS credentials configuration.")
             raise Exception(f"Error listing IAM users: {str(e)}")
 
     def get_user_events(self, username: str, hours: int = 24) -> List[EventData]:

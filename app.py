@@ -6,50 +6,28 @@ from helpers.cloudtrail_query import CloudTrailQuery
 from helpers.user_activity_helper import UserActivityHelper
 from helpers.sso_activity_helper import SSOActivityHelper
 from helpers.resource_activity_helper import ResourceActivityHelper
+from helpers.aws_auth import AWSAuth
 from utils import token_counter
 import os
 from dotenv import load_dotenv
 from collections import defaultdict
 
-# Add this function at the top of app.py, after the imports
 def display_token_metrics():
-    """Display token usage metrics and cost information."""
-    costs = token_counter.calculate_cost()
-    
-    # Create three columns for the metrics
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
+    """Display token usage metrics in the sidebar."""
+    if token_counter.total_tokens > 0:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("### Token Usage")
+        st.sidebar.metric("Total Tokens", token_counter.total_tokens)
+        st.sidebar.metric("Prompt Tokens", token_counter.prompt_tokens)
         st.metric(
-            label="Total Tokens",
-            value=f"{token_counter.total_tokens:,}",
-            delta="High Usage" if token_counter.total_tokens > 3000 else None,
-            delta_color="inverse"
-        )
-        if token_counter.total_tokens > 3000:
-            st.warning("Limited to 60 events due to high token usage")
-    
-    with col2:
-        st.metric(
-            label="Token Breakdown",
-            value=f"Input: {token_counter.prompt_tokens:,}",
+            label="Completion Tokens",
+            value=f"{token_counter.completion_tokens:,}",
             delta=f"Output: {token_counter.completion_tokens:,}"
         )
-    
-    with col3:
-        st.metric(
-            label="Total Cost",
-            value=f"${costs['total_cost']:.4f}",
-            help="Based on GPT-4 Turbo pricing: $10/M input, $30/M output tokens"
-        )
-    
-    # Display detailed cost breakdown
-    st.info(f"""
-    💰 Cost Breakdown:
-    • Input: {token_counter.prompt_tokens:,} tokens × $2M = ${costs['input_cost']:.4f}
-    • Output: {token_counter.completion_tokens:,} tokens × $8/M = ${costs['output_cost']:.4f}
-    • Total Cost: ${costs['total_cost']:.4f}
-    """)
+        
+        # Calculate estimated cost (rough estimate for GPT-4)
+        estimated_cost = (token_counter.prompt_tokens * 0.03 + token_counter.completion_tokens * 0.06) / 1000
+        st.sidebar.metric("Estimated Cost", f"${estimated_cost:.4f}")
 
 # Page config - MUST BE THE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -61,36 +39,69 @@ st.set_page_config(
 # Load environment variables
 load_dotenv()
 
+# Initialize AWS authentication
+aws_auth = AWSAuth()
 
-# Debug: Check if environment variables are loaded
-aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
-aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-aws_region = os.getenv('AWS_DEFAULT_REGION')
+# Check for AWS credentials
 openai_api_key = os.getenv('OPENAI_API_KEY')
 
-# Sidebar for credentials (for testing only)
-st.sidebar.header("AWS Credentials (Testing)")
-use_env_credentials = st.sidebar.checkbox("Use credentials from .env file", value=True)
+# AWS Credentials section in sidebar
+st.sidebar.header("AWS Credentials")
 
-if not use_env_credentials:
-    aws_access_key = st.sidebar.text_input("AWS Access Key ID", value=aws_access_key or "")
-    aws_secret_key = st.sidebar.text_input("AWS Secret Access Key", value=aws_secret_key or "", type="password")
-    aws_region = st.sidebar.text_input("AWS Region", value=aws_region or "us-east-1")
-    openai_api_key = st.sidebar.text_input("OpenAI API Key", value=openai_api_key or "", type="password")
+# Show current authentication status
+auth_info = aws_auth.get_auth_info()
+if auth_info['using_explicit_credentials']:
+    st.sidebar.success(f"✅ Using explicit credentials")
+    if auth_info['access_key_id']:
+        st.sidebar.text(f"Access Key: {auth_info['access_key_id']}")
+    st.sidebar.text(f"Region: {auth_info['region']}")
+else:
+    st.sidebar.info("🔄 Using default AWS authentication")
+    st.sidebar.text(f"Region: {auth_info['region']}")
+
+# Allow manual credential override
+auth_method = st.sidebar.radio(
+    "Authentication Method",
+    ["Use Default", "Manual Override"],
+    index=0
+)
+
+if auth_method == "Manual Override":
+    aws_access_key = st.sidebar.text_input("AWS Access Key ID")
+    aws_secret_key = st.sidebar.text_input("AWS Secret Access Key", type="password")
+    aws_region = st.sidebar.text_input("AWS Region", value=auth_info['region'])
     
-    # Set environment variables for the session
-    if aws_access_key and aws_secret_key and aws_region:
+    # Set credentials if provided
+    if aws_access_key and aws_secret_key:
         os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key
         os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_key
         os.environ['AWS_DEFAULT_REGION'] = aws_region
+        st.sidebar.success("✅ Manual credentials set")
+        # Reinitialize auth with new credentials
+        aws_auth = AWSAuth()
+
+# Allow OpenAI key to be entered if not in environment
+if not openai_api_key:
+    openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
     if openai_api_key:
         os.environ['OPENAI_API_KEY'] = openai_api_key
 
-if not all([aws_access_key, aws_secret_key, aws_region]):
+# Test AWS credentials
+try:
+    # Try to create a simple client to test credentials
+    test_client = aws_auth.create_client('sts')
+    has_credentials = True
+except Exception as e:
+    has_credentials = False
+    st.sidebar.error(f"❌ AWS credentials error: {str(e)}")
+
+if not has_credentials:
     st.error("""
-    AWS credentials not found. Please either:
-    1. Check your .env file, or
-    2. Enter credentials in the sidebar
+    AWS credentials not found or invalid. Please either:
+    1. Configure AWS credentials using AWS CLI (`aws configure`)
+    2. Set up IAM roles (if running on EC2/ECS/Lambda)
+    3. Use manual credential override in the sidebar
+    4. Set environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
     """)
     st.stop()
 
