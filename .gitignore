@@ -1,0 +1,97 @@
+# Environment and secrets
+.env
+.env.*
+.venv/
+venv/
+env/
+credentials.json
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+pytest.xml
+coverage.xml
+.coverage
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+sso.ipynb
+
+# AWS
+.aws/
+aws.json
+aws-credentials.json
+aws-config.json
+.aws-sam/
+users.json
+cloudtrail-*.json
+*_credentials.json
+*_config.json
+
+# Data files
+*.csv
+*.json
+!package.json
+!tsconfig.json
+*.log
+*.sqlite
+*.db
+*.dat
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*.sublime-*
+.project
+.settings/
+.classpath
+*.code-workspace
+
+# Large files
+*.so
+*.dylib
+*.dll
+*.pyd
+pyarrow/
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# Documentation and notes
+NOTES
+NOTES.md
+TODO
+TODO.md
+setup.md
+sso.ipynb
+users.json
