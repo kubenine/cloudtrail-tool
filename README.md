@@ -2,24 +2,29 @@
 
 A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natural language queries and AI-powered insights. This tool helps you monitor, analyze, and understand AWS user activities through an easy-to-use web interface.
 
+---
+
 ## 🌟 Features
 
-- 🔍 Natural language search for CloudTrail events
-- 🤖 AI-powered user activity summarization
-- 📊 Interactive web interface built with Streamlit
-- ⚡ Real-time CloudWatch Logs Insights queries
-- 👥 IAM user activity tracking and monitoring
-- 📈 Activity trends and patterns visualization
+- 🔍 Natural language search for CloudTrail events  
+- 🤖 AI-powered user activity summarization  
+- 📊 Interactive web interface built with Streamlit  
+- ⚡ Real-time CloudWatch Logs Insights queries  
+- 👥 IAM user activity tracking and monitoring  
+- 📈 Activity trends and patterns visualization  
+
+---
 
 ## 🚀 Quick Start
 
-1. **Clone the Repository**
-   ```bash
-   git clone <repository-url>
-   cd cloudtrail-project
-   ```
+### 1. Clone the Repository
 
-2. **Create Virtual Environment**
+```bash
+git clone <repository-url>
+cd cloudtrail-project
+```
+
+### 2. Create Virtual Environment
    ```bash
    python -m venv .venv
    
@@ -30,12 +35,12 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
    .venv\Scripts\activate
    ```
 
-3. **Install Dependencies**
+### 3. Install Dependencies
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Configure AWS Authentication**
+### 4. Configure AWS Authentication
    
    The application supports multiple AWS authentication methods (in order of preference):
    
@@ -61,40 +66,126 @@ A powerful and intuitive dashboard for analyzing AWS CloudTrail logs using natur
    - Use the "Manual Override" option in the sidebar
    - Enter credentials directly in the web interface
 
-5. **Configure AWS Services**
+### 5. Configure AWS Services
+**Configuration Variables**
 
-   a. **Enable CloudTrail**
    ```bash
-   aws cloudtrail create-trail \
-       --name "MyCloudTrail" \
-       --s3-bucket-name "my-cloudtrail-logs" \
-       --include-global-service-events \
-       --is-multi-region-trail
-   ```
+      ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+      CLOUDTRAIL_BUCKET_NAME="cax-cloudtrail-logs"
+      CLOUDTRAIL_NAME="CloudTrail-CAX"
+      LOG_GROUP_NAME="/aws/cloudtrail"
+      IAM_ROLE_NAME="CloudTrailCloudWatchLogsRole"
+      IAM_POLICY_NAME="CloudTrailCloudWatchLogsPolicy"
+   ``` 
+**create bucket**
+```bash
+aws s3 mb s3://$CLOUDTRAIL_BUCKET_NAME
+``` 
+   
+**Add bucket policy for CloudTrail**
+     
+```bash
+aws s3api put-bucket-policy \
+    --bucket $CLOUDTRAIL_BUCKET_NAME \
+    --policy '{
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AWSCloudTrailAclCheck",
+                "Effect": "Allow",
+                "Principal": {"Service": "cloudtrail.amazonaws.com"},
+                "Action": "s3:GetBucketAcl",
+                "Resource": "arn:aws:s3:::'$CLOUDTRAIL_BUCKET_NAME'"
+            },
+            {
+                "Sid": "AWSCloudTrailWrite",
+                "Effect": "Allow", 
+                "Principal": {"Service": "cloudtrail.amazonaws.com"},
+                "Action": "s3:PutObject",
+                "Resource": "arn:aws:s3:::'$CLOUDTRAIL_BUCKET_NAME'/AWSLogs/*",
+                "Condition": {
+                    "StringEquals": {
+                        "s3:x-amz-acl": "bucket-owner-full-control"
+                    }
+                }
+            }
+         ]
+      }'
+```
+      
+ **Create Trail**
+ ```bash
+aws cloudtrail create-trail \
+    --name "$CLOUDTRAIL_NAME" \
+    --s3-bucket-name $CLOUDTRAIL_BUCKET_NAME \
+    --include-global-service-events \
+    --is-multi-region-trail
+```
 
-   b. **Set Up CloudWatch Logs**
-   ```bash
-   # Create Log Group
-   aws logs create-log-group --log-group-name "/aws/cloudtrail"
+**Create Log Group**
+```bash
+aws logs create-log-group --log-group-name "$LOG_GROUP_NAME"
+```
 
-   # Set Retention Policy (optional)
-   aws logs put-retention-policy \
-       --log-group-name "/aws/cloudtrail" \
-       --retention-in-days 30
+**Get log group arn**
+```bash
+LOG_GROUP_ARN=$(aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --query "logGroups[0].arn" --output text)
+```
+**Configure cloudtrail to use log group**
+***Create IAM role for CloudTrail to CloudWatch Logs***
+```bash
+aws iam create-role \
+    --role-name $IAM_ROLE_NAME \
+    --assume-role-policy-document '{
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "cloudtrail.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }]
+    }'
+```
 
-   # Configure CloudTrail to CloudWatch Integration
-   aws cloudtrail update-trail \
-       --name "MyCloudTrail" \
-       --cloud-watch-logs-log-group-arn "arn:aws:logs:region:account-id:log-group:/aws/cloudtrail" \
-       --cloud-watch-logs-role-arn "arn:aws:iam::account-id:role/CloudTrailCloudWatchLogsRole"
-   ```
+**Attach policy to allow CloudTrail to write to CloudWatch Logs**
+```bash
+aws iam put-role-policy \
+    --role-name $IAM_ROLE_NAME \
+    --policy-name $IAM_POLICY_NAME \
+    --policy-document '{
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "'$LOG_GROUP_ARN':*"
+        }]
+    }'
+```
 
-6. **Launch the Application**
+**Update trail with the role (after creating and configuring it)**
+```bash
+aws cloudtrail update-trail \
+    --name "$CLOUDTRAIL_NAME" \
+    --cloud-watch-logs-log-group-arn $LOG_GROUP_ARN \
+    --cloud-watch-logs-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/$IAM_ROLE_NAME"
+```
+
+**Enable trail logging**
+```bash
+aws cloudtrail start-logging \
+    --name "$CLOUDTRAIL_NAME"
+```
+
+### 6. Launch the Application
    ```bash
    streamlit run app.py
    ```
 
-7. **Access the Dashboard**
+### 7. Access the Dashboard
    Open your browser and navigate to `http://localhost:8501`
 
 ## 🔐 AWS Authentication
@@ -121,7 +212,7 @@ If you see authentication errors:
 3. Use the "Manual Override" option in the sidebar as a fallback
 4. Ensure your AWS credentials have the required permissions (see below)
 
-## 🔑 Required AWS Permissions
+### 🔑 Required AWS Permissions
 
 Ensure your AWS IAM user/role has the following permissions:
 ```json
@@ -147,7 +238,7 @@ Ensure your AWS IAM user/role has the following permissions:
 
 ## 📋 SSO Users Setup
 
-1. **Create SSO Users Script**
+### 1. Create SSO Users Script
    Create a file named `fetch_sso_users.py` in the project root:
    ```python
    import boto3
@@ -205,17 +296,17 @@ Ensure your AWS IAM user/role has the following permissions:
        fetch_sso_users()
    ```
 
-2. **Run the Script**
+### 2. Run the Script
    ```bash
    # Make sure you have AWS credentials configured
    python fetch_sso_users.py
    ```
-   This script will:
+   **This script will:**
    - Connect to your AWS SSO instance
    - Fetch all SSO users and their details
    - Save the user information in `users.json`
 
-3. **Verify the Output**
+### 3. Verify the Output
    Check that `users.json` was created with the expected format:
    ```json
    {
@@ -236,17 +327,40 @@ Ensure your AWS IAM user/role has the following permissions:
    }
    ```
 
-4. **Schedule Regular Updates**
+### 4. Schedule Regular Updates(Optional)
    - Set up a cron job to run the script periodically
    - Example cron entry (runs daily at midnight):
      ```bash
      0 0 * * * cd /path/to/project && python fetch_sso_users.py
      ```
 
-Note: The `users.json` file is used by the dashboard to display and track SSO user activities. Make sure to keep it updated as users are added or removed from your AWS SSO.
+**Note:** The `users.json` file is used by the dashboard to display and track SSO user activities. Make sure to keep it updated as users are added or removed from your AWS SSO.
+
+## 🐳 Docker Usage
+
+### 1. Build the Docker image
+
+```bash
+docker build -t cloudtrail-dashboard .
+```
+
+### 2. Run the Docker container
+
+```bash
+docker run -p 8551:8551 --env-file .env -v $(pwd)/users.json:/app/users.json cloudtrail-dashboard```
+```
+- `--env-file .env` loads your AWS and OpenAI credentials.
+- `-v $(pwd)/users.json:/app/users.json` mounts your SSO users file (if needed).
+
+### 3. Access the Dashboard
+
+Open your browser and go to [http://localhost:8551](http://localhost:8551)
+
+**Note:**  
+- Make sure your `.env` and `users.json` are present in your project root.
+- Never commit your `.env` file to version control.
 
 ## 📋 Usage Guide
-
 1. **Natural Language Search**
    - Enter your query in natural language
    - Example: "Show me all S3 bucket creation events from last week"
@@ -267,13 +381,10 @@ cloudtrail-project/
 ├── app.py              # Main Streamlit application
 ├── requirements.txt    # Python dependencies
 ├── .env                # Environment variables
+├── utils/              # Utility functions    
 └── helpers/            # Helpers directory
 ```
 
-### Running Tests
-```bash
-pytest tests/
-```
 
 ## 🤝 Contributing
 
@@ -300,7 +411,7 @@ Common issues and solutions:
    - Check your API usage limits
 
 3. **Streamlit Connection Issues**
-   - Ensure port 8501 is available
+   - Ensure port 8551 is available
    - Check your firewall settings
 
 ## 📞 Support
