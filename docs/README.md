@@ -3,8 +3,7 @@
 Welcome to the comprehensive documentation for the CloudTrail Intelligence Dashboard. This documentation is organized into several guides to help you get started, configure, and use the dashboard effectively.
 
 ## Demo
-[▶️ Watch Demo Video](assets/Exploring%20the%20CloudTrail%20Intelligence%20Dashboard%20%281%29.mp4)
-
+▶️ [Watch the demo video on Loom](https://www.loom.com/share/3dfab1bef99d49d99a9456f8914bbd79)
 
 
 ## 📖 Documentation Index
