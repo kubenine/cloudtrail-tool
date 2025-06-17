@@ -2,6 +2,11 @@
 
 Welcome to the comprehensive documentation for the CloudTrail Intelligence Dashboard. This documentation is organized into several guides to help you get started, configure, and use the dashboard effectively.
 
+## Demo
+[▶️ Watch Demo Video](assets/Exploring%20the%20CloudTrail%20Intelligence%20Dashboard%20%281%29.mp4)
+
+
+
 ## 📖 Documentation Index
 
 ### Setup and Configuration
