@@ -6,6 +6,9 @@ from helpers.cloudtrail_query import CloudTrailQuery
 from helpers.user_activity_helper import UserActivityHelper
 from helpers.sso_activity_helper import SSOActivityHelper
 from helpers.resource_activity_helper import ResourceActivityHelper
+from helpers.permission_analysis_helper import PermissionAnalysisHelper
+from helpers.security_compliance_helper import SecurityComplianceHelper
+from helpers.audit_report_helper import AuditReportHelper
 from helpers.aws_auth import AWSAuth
 from utils import token_counter
 import os
@@ -119,6 +122,9 @@ try:
     user_activity = UserActivityHelper()
     sso_activity = SSOActivityHelper()
     resource_activity = ResourceActivityHelper()
+    permission_analysis = PermissionAnalysisHelper(aws_auth.create_session())
+    security_compliance = SecurityComplianceHelper(aws_auth.create_session())
+    audit_report = AuditReportHelper(permission_analysis, security_compliance)
 except Exception as e:
     st.error(f"Error initializing helpers: {str(e)}")
     st.stop()
@@ -139,7 +145,13 @@ time_window = st.sidebar.slider(
 )
 
 # Main content
-tab1, tab2, tab3, tab4 = st.tabs(["SSO User Activity", "IAM User Activity", "Natural Language Search", "Resource Activity"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "SSO User Activity", 
+    "IAM User Activity", 
+    "Natural Language Search", 
+    "Resource Activity",
+    "Account Audit"
+])
 
 # SSO User Activity Tab
 with tab1:
@@ -519,6 +531,534 @@ with tab4:
                     st.warning(f"No events found for {selected_service} resources in the specified time window.")
         except Exception as e:
             st.error(f"Error fetching resource activity: {str(e)}")
+
+# Account Audit Tab
+with tab5:
+    st.header("Account Audit")
+    
+    # Create sub-tabs for different audit features
+    audit_tab1, audit_tab2, audit_tab3, audit_tab4 = st.tabs([
+        "Security Overview",
+        "User Analysis",
+        "Permission Analysis",
+        "Compliance Reports"
+    ])
+    
+    # Security Overview Tab
+    with audit_tab1:
+        st.subheader("Security Overview")
+        
+        # Security Score
+        try:
+            with st.spinner("Calculating security score..."):
+                security_score = security_compliance.get_security_score()
+                
+                # Display score in a metric
+                st.metric(
+                    "Security Score",
+                    f"{security_score['score']}/100",
+                    delta=None if security_score['score'] >= 90 else f"{90 - security_score['score']} points below target"
+                )
+                
+                # Display detailed breakdown of score issues with fixes
+                if security_score['score'] < 100:
+                    st.markdown("### 🔍 Security Score Breakdown & Recommended Fixes")
+                    
+                    # Get detailed information for each category
+                    password_policy = security_compliance.check_password_policy()
+                    mfa_status = security_compliance.check_mfa_status()
+                    key_rotation = security_compliance.check_access_key_rotation()
+                    root_usage = security_compliance.monitor_root_account_usage(days=7)
+                    
+                    # Password Policy Issues
+                    if isinstance(password_policy, dict) and 'error' not in password_policy:
+                        non_compliant_policies = {k: v for k, v in password_policy.items() if not v['compliant']}
+                        if non_compliant_policies:
+                            with st.expander(f"❌ Password Policy Issues (-{len(non_compliant_policies) * 5} points)", expanded=True):
+                                st.markdown("**Issues Found:**")
+                                for policy_name, details in non_compliant_policies.items():
+                                    st.markdown(f"• **{policy_name.replace('_', ' ').title()}**: Current: `{details['current']}`, Recommended: `{details['recommended']}`")
+                                
+                                st.markdown("**How to Fix:**")
+                                st.code("""
+# Update account password policy using AWS CLI:
+aws iam update-account-password-policy \\
+    --minimum-password-length 14 \\
+    --require-symbols \\
+    --require-numbers \\
+    --require-uppercase-characters \\
+    --require-lowercase-characters \\
+    --password-reuse-prevention 24 \\
+    --max-password-age 90
+                                """, language="bash")
+                                st.markdown("**Or via AWS Console:** IAM → Account settings → Password policy → Edit")
+                    
+                    # MFA Issues (Console Users Only)
+                    if 'error' not in mfa_status and mfa_status['console_users'] > 0:
+                        mfa_percentage = (mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100
+                        if mfa_percentage < 100:
+                            points_lost = int(15 * (100 - mfa_percentage) / 100)
+                            with st.expander(f"❌ MFA Not Enabled for Console Users (-{points_lost} points)", expanded=True):
+                                st.markdown("**Issues Found:**")
+                                st.markdown(f"• {mfa_status['console_mfa_disabled']} console users without MFA:")
+                                for user in mfa_status['console_users_without_mfa']:
+                                    st.markdown(f"  - {user}")
+                                
+                                st.markdown("**How to Fix:**")
+                                st.markdown("**For each user via AWS Console:**")
+                                st.markdown("1. Go to IAM → Users → [Username] → Security credentials")
+                                st.markdown("2. In 'Multi-factor authentication (MFA)' section, click 'Assign MFA device'")
+                                st.markdown("3. Choose device type (Virtual MFA device recommended)")
+                                st.markdown("4. Follow the setup wizard")
+                                
+                                st.markdown("**Via AWS CLI:**")
+                                st.code("""
+# Create virtual MFA device
+aws iam create-virtual-mfa-device --virtual-mfa-device-name <username>-mfa --outfile qr-code.png --bootstrap-method QRCodePNG
+
+# Enable MFA device (after scanning QR code)
+aws iam enable-mfa-device --user-name <username> --serial-number <mfa-device-arn> --authentication-code-1 <code1> --authentication-code-2 <code2>
+                                """, language="bash")
+                    
+                    # Access Key Rotation Issues
+                    if 'error' not in key_rotation and key_rotation['non_compliant_keys'] > 0:
+                        points_lost = key_rotation['non_compliant_keys'] * 3
+                        with st.expander(f"⚠️ Access Keys Need Rotation (-{points_lost} points)", expanded=True):
+                            st.markdown("**Issues Found:**")
+                            st.markdown(f"• {key_rotation['non_compliant_keys']} access keys older than 90 days:")
+                            for key in key_rotation['keys_requiring_rotation']:
+                                st.markdown(f"  - User: `{key['username']}`, Key: `{key['access_key_id']}`, Age: {key['age_days']} days")
+                            
+                            st.markdown("**How to Fix:**")
+                            st.markdown("**For each user via AWS Console:**")
+                            st.markdown("1. Go to IAM → Users → [Username] → Security credentials")
+                            st.markdown("2. In 'Access keys' section, click 'Create access key'")
+                            st.markdown("3. Update applications with new key")
+                            st.markdown("4. Test applications with new key")
+                            st.markdown("5. Delete old access key")
+                            
+                            st.markdown("**Via AWS CLI:**")
+                            st.code("""
+# Create new access key
+aws iam create-access-key --user-name <username>
+
+# After updating applications, delete old key
+aws iam delete-access-key --user-name <username> --access-key-id <old-access-key-id>
+                            """, language="bash")
+                    
+                    # Root Account Usage Issues
+                    if root_usage and 'error' not in root_usage[0] and len(root_usage) > 0:
+                        points_lost = len(root_usage) * 10
+                        with st.expander(f"🚨 Root Account Usage Detected (-{points_lost} points)", expanded=True):
+                            st.markdown("**Issues Found:**")
+                            st.markdown(f"• Root account used {len(root_usage)} times in the past week:")
+                            for activity in root_usage[:5]:  # Show first 5 activities
+                                st.markdown(f"  - {activity['timestamp'].strftime('%Y-%m-%d %H:%M')}: {activity['event_name']}")
+                            if len(root_usage) > 5:
+                                st.markdown(f"  - ... and {len(root_usage) - 5} more activities")
+                            
+                            st.markdown("**How to Fix:**")
+                            st.markdown("**Immediate Actions:**")
+                            st.markdown("1. **Stop using root account** for daily activities")
+                            st.markdown("2. **Create admin IAM user** if not already exists")
+                            st.markdown("3. **Enable MFA on root account**")
+                            st.markdown("4. **Remove root access keys** if any exist")
+                            
+                            st.markdown("**Create Admin User via AWS CLI:**")
+                            st.code("""
+# Create admin user
+aws iam create-user --user-name admin-user
+
+# Attach admin policy
+aws iam attach-user-policy --user-name admin-user --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+
+# Create login profile
+aws iam create-login-profile --user-name admin-user --password '<secure-password>' --password-reset-required
+
+# Create access key if needed
+aws iam create-access-key --user-name admin-user
+                            """, language="bash")
+                
+                else:
+                    st.success("🎉 Perfect Security Score! No issues found.")
+                
+                # Display findings
+                if security_score['findings']:
+                    st.warning("Security Findings Summary")
+                    for finding in security_score['findings']:
+                        st.markdown(f"- {finding}")
+                else:
+                    st.success("No critical security findings")
+                
+                # Display charts
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.plotly_chart(audit_report.generate_security_score_chart(), use_container_width=True)
+                
+                with col2:
+                    st.plotly_chart(audit_report.generate_mfa_status_chart(), use_container_width=True)
+        
+        except Exception as e:
+            st.error(f"Error generating security overview: {str(e)}")
+    
+    # User Analysis Tab
+    with audit_tab2:
+        st.subheader("User Analysis")
+        
+        analysis_type = st.radio(
+            "Select Analysis Type",
+            ["All Users Overview", "Individual User Analysis"]
+        )
+        
+        try:
+            if analysis_type == "All Users Overview":
+                with st.spinner("Analyzing all users..."):
+                    # Get list of all IAM users
+                    users = aws_auth.create_client('iam').list_users()['Users']
+                    
+                    # Create summary metrics
+                    total_users = len(users)
+                    
+                    # Initialize counters
+                    total_mfa_enabled = 0
+                    total_access_keys = 0
+                    total_active_keys = 0
+                    users_with_admin = 0
+                    users_without_mfa = []
+                    users_with_old_keys = []
+                    console_users = 0
+                    cli_only_users = 0
+                    
+                    # Create a list to store all user reports for the detailed table
+                    all_user_reports = []
+                    
+                    for user in users:
+                        user_report = audit_report.generate_detailed_user_report(user['UserName'])
+                        all_user_reports.append(user_report)
+                        
+                        # Check if user has console access
+                        has_console_access = False
+                        try:
+                            aws_auth.create_client('iam').get_login_profile(UserName=user['UserName'])
+                            has_console_access = True
+                            console_users += 1
+                        except Exception:
+                            cli_only_users += 1
+                        
+                        # Update MFA counter (only for console users)
+                        if has_console_access:
+                            if user_report['mfa_devices']:
+                                total_mfa_enabled += 1
+                            else:
+                                users_without_mfa.append(user['UserName'])
+                        
+                        total_access_keys += len(user_report['access_keys'])
+                        total_active_keys += sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
+                        
+                        # Check for admin access
+                        for policy in user_report['permissions']['attached_policies']:
+                            if 'AdministratorAccess' in policy['PolicyName']:
+                                users_with_admin += 1
+                                break
+                        
+                        # Check for old access keys
+                        for key in user_report['access_keys']:
+                            if key['needs_rotation']:
+                                users_with_old_keys.append({
+                                    'username': user['UserName'],
+                                    'key_id': key['access_key_id'],
+                                    'age_days': key['age_days']
+                                })
+                    
+                    # Display summary metrics in columns
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        st.metric("Total Users", total_users)
+                    
+                    with col2:
+                        if console_users > 0:
+                            st.metric("Console MFA Adoption", f"{(total_mfa_enabled/console_users)*100:.1f}%")
+                        else:
+                            st.metric("Console Users", "0")
+                    
+                    with col3:
+                        st.metric("Active Access Keys", total_active_keys)
+                    
+                    with col4:
+                        st.metric("Admin Users", users_with_admin)
+                    
+                    # Additional metrics row
+                    col5, col6, col7, col8 = st.columns(4)
+                    
+                    with col5:
+                        st.metric("Console Users", console_users)
+                    
+                    with col6:
+                        st.metric("CLI-Only Users", cli_only_users)
+                    
+                    with col7:
+                        st.metric("Keys Needing Rotation", len(users_with_old_keys))
+                    
+                    with col8:
+                        st.metric("Users Without MFA", len(users_without_mfa))
+                    
+                    # Display security warnings if any
+                    if users_without_mfa:
+                        st.warning("Console Users Without MFA (Security Risk)")
+                        for user in users_without_mfa:
+                            st.markdown(f"- {user}")
+                    
+                    if users_with_old_keys:
+                        st.warning("Users With Keys Needing Rotation")
+                        for entry in users_with_old_keys:
+                            st.markdown(f"- {entry['username']}: Key {entry['key_id']} ({entry['age_days']} days old)")
+                    
+                    # Create a detailed table of all users
+                    st.markdown("### Detailed User Overview")
+                    
+                    # Convert user reports to a DataFrame for better display
+                    user_data = []
+                    for report in all_user_reports:
+                        # Check if user has console access
+                        has_console_access = False
+                        try:
+                            aws_auth.create_client('iam').get_login_profile(UserName=report['username'])
+                            has_console_access = True
+                        except Exception:
+                            has_console_access = False
+                        
+                        user_data.append({
+                            'Username': report['username'],
+                            'User Type': 'Console' if has_console_access else 'CLI-Only',
+                            'MFA Enabled': bool(report['mfa_devices']) if has_console_access else 'N/A',
+                            'Access Keys': len(report['access_keys']),
+                            'Active Keys': sum(1 for key in report['access_keys'] if key['status'] == 'Active'),
+                            'Keys Needing Rotation': sum(1 for key in report['access_keys'] if key['needs_rotation']),
+                            'Attached Policies': len(report['permissions']['attached_policies']),
+                            'Group Memberships': len(report['permissions']['groups']),
+                            'Has Admin Access': any('AdministratorAccess' in p['PolicyName'] 
+                                                 for p in report['permissions']['attached_policies'])
+                        })
+                    
+                    df = pd.DataFrame(user_data)
+                    st.dataframe(df, use_container_width=True)
+                    
+                    # Add export functionality
+                    if st.button("Export User Analysis"):
+                        try:
+                            with st.spinner("Generating detailed report..."):
+                                output_path = "user_analysis_report.xlsx"
+                                
+                                with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+                                    # Summary sheet
+                                    summary_data = {
+                                        'Metric': ['Total Users', 'MFA Enabled Users', 'Total Access Keys', 
+                                                 'Active Access Keys', 'Admin Users'],
+                                        'Value': [total_users, total_mfa_enabled, total_access_keys, 
+                                                total_active_keys, users_with_admin]
+                                    }
+                                    pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+                                    
+                                    # Detailed user data
+                                    df.to_excel(writer, sheet_name='User Details', index=False)
+                                    
+                                    # Users without MFA
+                                    pd.DataFrame(users_without_mfa, columns=['Username'])\
+                                        .to_excel(writer, sheet_name='Users Without MFA', index=False)
+                                    
+                                    # Old access keys
+                                    if users_with_old_keys:
+                                        pd.DataFrame(users_with_old_keys)\
+                                            .to_excel(writer, sheet_name='Keys Needing Rotation', index=False)
+                                
+                                with open(output_path, "rb") as f:
+                                    st.download_button(
+                                        label="Download User Analysis Report",
+                                        data=f,
+                                        file_name="user_analysis_report.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                        except Exception as e:
+                            st.error(f"Error exporting report: {str(e)}")
+            
+            else:  # Individual User Analysis
+                # Get list of IAM users
+                users = aws_auth.create_client('iam').list_users()['Users']
+                selected_user = st.selectbox(
+                    "Select User",
+                    options=[user['UserName'] for user in users]
+                )
+                
+                if selected_user:
+                    with st.spinner("Analyzing user..."):
+                        user_report = audit_report.generate_detailed_user_report(selected_user)
+                        
+                        # Display user details
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.metric("MFA Devices", len(user_report['mfa_devices']))
+                        
+                        with col2:
+                            st.metric("Access Keys", len(user_report['access_keys']))
+                        
+                        with col3:
+                            active_keys = sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
+                            st.metric("Active Access Keys", active_keys)
+                        
+                        # Display permissions
+                        st.markdown("### Permissions")
+                        st.json(user_report['permissions'])
+                        
+                        # Display unused permissions
+                        st.markdown("### Unused Permissions")
+                        if user_report['unused_permissions']['unused_permissions']:
+                            st.warning(f"Found {len(user_report['unused_permissions']['unused_permissions'])} unused permissions")
+                            for perm in user_report['unused_permissions']['unused_permissions']:
+                                st.markdown(f"- `{perm}`")
+                        else:
+                            st.success("No unused permissions found")
+                        
+                        # Display access key details
+                        st.markdown("### Access Keys")
+                        for key in user_report['access_keys']:
+                            status_color = "🟢" if key['status'] == 'Active' else "🔴"
+                            rotation_warning = "⚠️ Needs rotation" if key['needs_rotation'] else "✅ Up to date"
+                            st.markdown(f"{status_color} {key['access_key_id']} - Age: {key['age_days']} days - {rotation_warning}")
+        
+        except Exception as e:
+            st.error(f"Error analyzing users: {str(e)}")
+    
+    # Permission Analysis Tab
+    with audit_tab3:
+        st.subheader("Permission Analysis")
+        
+        try:
+            # Check for overprivileged accounts
+            with st.spinner("Analyzing permissions..."):
+                overprivileged = permission_analysis.check_overprivileged_accounts()
+                
+                if overprivileged:
+                    st.warning(f"Found {len(overprivileged)} overprivileged accounts")
+                    for account in overprivileged:
+                        st.markdown(f"- **{account['username']}**: {account['reason']} (Risk: {account['risk_level']})")
+                else:
+                    st.success("No overprivileged accounts found")
+                
+                # Display permission changes
+                st.markdown("### Recent Permission Changes")
+                changes_df = permission_analysis.track_permission_changes()
+                if not changes_df.empty:
+                    st.dataframe(changes_df)
+                else:
+                    st.info("No recent permission changes found")
+        
+        except Exception as e:
+            st.error(f"Error analyzing permissions: {str(e)}")
+    
+    # Compliance Reports Tab
+    with audit_tab4:
+        st.subheader("Compliance Reports")
+        
+        try:
+            # Password Policy
+            st.markdown("### Password Policy")
+            password_policy = security_compliance.check_password_policy()
+            
+            if 'error' not in password_policy:
+                for setting, details in password_policy.items():
+                    status = "✅" if details['compliant'] else "❌"
+                    st.markdown(f"{status} **{setting}**: Current: {details['current']} (Recommended: {details['recommended']})")
+            else:
+                st.warning(password_policy['error'])
+            
+            # MFA Status
+            st.markdown("### MFA Status")
+            mfa_status = security_compliance.check_mfa_status()
+            
+            if 'error' not in mfa_status:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total Users", mfa_status['total_users'])
+                
+                with col2:
+                    st.metric("Console Users", mfa_status['console_users'])
+                
+                with col3:
+                    st.metric("CLI-Only Users", mfa_status['cli_only_users'])
+                
+                if mfa_status['console_users'] > 0:
+                    st.metric("Console MFA Adoption", 
+                             f"{(mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100:.1f}%")
+                    
+                    if mfa_status['console_users_without_mfa']:
+                        st.warning("Console Users without MFA (Security Risk)")
+                        for user in mfa_status['console_users_without_mfa']:
+                            st.markdown(f"- {user}")
+                    else:
+                        st.success("All console users have MFA enabled")
+                else:
+                    st.info("No console users found - all users are CLI-only")
+                
+                # Show CLI users for information
+                if mfa_status['cli_users']:
+                    with st.expander("CLI-Only Users (MFA not required)"):
+                        for user in mfa_status['cli_users']:
+                            st.markdown(f"- {user}")
+            else:
+                st.error(mfa_status['error'])
+            
+            # Access Key Rotation
+            st.markdown("### Access Key Rotation")
+            key_status = security_compliance.check_access_key_rotation()
+            
+            if 'error' not in key_status:
+                st.plotly_chart(audit_report.generate_access_key_age_chart(), use_container_width=True)
+                
+                if key_status['keys_requiring_rotation']:
+                    st.warning("Keys Requiring Rotation")
+                    for key in key_status['keys_requiring_rotation']:
+                        st.markdown(f"- User: {key['username']}, Key: {key['access_key_id']}, Age: {key['age_days']} days")
+            else:
+                st.error(key_status['error'])
+            
+            # Root Account Usage
+            st.markdown("### Root Account Usage")
+            root_usage = security_compliance.monitor_root_account_usage(days=7)
+            
+            if root_usage and 'error' not in root_usage[0]:
+                if len(root_usage) > 0:
+                    st.warning(f"Found {len(root_usage)} root account activities in the past week")
+                    for activity in root_usage:
+                        st.markdown(f"- {activity['timestamp']}: {activity['event_name']} ({activity['event_source']})")
+                else:
+                    st.success("No root account usage detected in the past week")
+            else:
+                st.error("Error checking root account usage")
+            
+            # Export Report
+            st.markdown("### Export Report")
+            if st.button("Export to Excel"):
+                try:
+                    with st.spinner("Generating Excel report..."):
+                        output_path = "audit_report.xlsx"
+                        audit_report.export_to_excel(output_path)
+                        
+                        with open(output_path, "rb") as f:
+                            st.download_button(
+                                label="Download Report",
+                                data=f,
+                                file_name="audit_report.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                except Exception as e:
+                    st.error(f"Error exporting report: {str(e)}")
+        
+        except Exception as e:
+            st.error(f"Error generating compliance reports: {str(e)}")
 
 # Footer
 st.markdown("---")

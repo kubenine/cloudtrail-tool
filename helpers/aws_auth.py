@@ -36,6 +36,33 @@ class AWSAuth:
         # Determine if we should use explicit credentials or default auth
         self.use_explicit_credentials = bool(self.aws_access_key and self.aws_secret_key)
     
+    def create_session(self, region_name: Optional[str] = None) -> boto3.Session:
+        """Create a boto3 session with appropriate authentication.
+        
+        Args:
+            region_name: AWS region name (optional, defaults to configured region)
+            
+        Returns:
+            Configured boto3 session
+        """
+        region = region_name or self.aws_region
+        
+        if self.use_explicit_credentials:
+            # Use explicit credentials from environment/config
+            session_kwargs = {
+                'aws_access_key_id': self.aws_access_key,
+                'aws_secret_access_key': self.aws_secret_key,
+                'region_name': region
+            }
+            
+            if self.session_token:
+                session_kwargs['aws_session_token'] = self.session_token
+                
+            return boto3.Session(**session_kwargs)
+        else:
+            # Use default AWS credential provider chain
+            return boto3.Session(region_name=region)
+    
     def create_client(self, service_name: str, region_name: Optional[str] = None) -> boto3.client:
         """Create a boto3 client with appropriate authentication.
         
