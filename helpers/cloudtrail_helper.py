@@ -44,6 +44,12 @@ class CloudTrailHelper:
             self.iam_client = self.aws_auth.create_client("iam")
             self.sso_client = self.aws_auth.create_client("identitystore")
             self.sso_admin_client = self.aws_auth.create_client("sso-admin")
+            self.cloudtrail = self.aws_auth.create_client("cloudtrail")
+            self.organizations = None
+            try:
+                self.organizations = self.aws_auth.create_client("organizations")
+            except:
+                pass
         except Exception as e:
             raise ValueError(f"Failed to initialize AWS clients. Please check your AWS credentials. Error: {str(e)}")
             
@@ -478,7 +484,15 @@ class CloudTrailHelper:
         except Exception as e:
             raise Exception(f"Error getting SSO user events: {str(e)}")
 
-
+    def _extract_resource_name(self, event: Dict) -> str:
+        """Extract resource name from CloudTrail event."""
+        try:
+            resources = event.get('Resources', [])
+            if resources:
+                return resources[0].get('ResourceName', 'Unknown')
+            return 'Unknown'
+        except:
+            return 'Unknown'
 
 if __name__ == "__main__":
     cloudtrail_helper = CloudTrailHelper()
