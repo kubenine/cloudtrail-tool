@@ -41,29 +41,62 @@ class PermissionAnalysisHelper:
             start_time = datetime.now() - timedelta(days=days)
             
             used_actions = set()
+            
+            # Populate used_actions from CloudTrail events
+            try:
+                response = self.cloudtrail_client.lookup_events(
+                    StartTime=start_time,
+                    EndTime=datetime.now(),
+                    LookupAttributes=[
+                        {
+                            'AttributeKey': 'Username',
+                            'AttributeValue': username
+                        }
+                    ]
+                )
+                
+                for event in response['Events']:
+                    # Extract action from event name (e.g., "CreateBucket" -> "s3:CreateBucket")
+                    event_name = event['EventName']
+                    event_source = event.get('EventSource', '').replace('.amazonaws.com', '')
+                    if event_source:
+                        action = f"{event_source}:{event_name}"
+                        used_actions.add(action)
+                        used_actions.add(event_name)  # Also add without service prefix
+            except Exception as e:
+                print(f"Warning: Could not retrieve CloudTrail events for {username}: {str(e)}")
+            
             unused_permissions = []
             
             # Analyze each policy
             for policy in permissions['attached_policies']:
-                policy_details = self.iam_client.get_policy(PolicyArn=policy['PolicyArn'])
-                policy_version = self.iam_client.get_policy_version(
-                    PolicyArn=policy['PolicyArn'],
-                    VersionId=policy_details['Policy']['DefaultVersionId']
-                )
-                
-                # Compare policy permissions with used actions
-                # This is a simplified version - in practice, you'd need more complex matching
-                for statement in policy_version['PolicyVersion']['Document']['Statement']:
-                    if isinstance(statement['Action'], list):
-                        for action in statement['Action']:
-                            if action not in used_actions:
-                                unused_permissions.append(action)
-                    else:
-                        if statement['Action'] not in used_actions:
-                            unused_permissions.append(statement['Action'])
+                try:
+                    policy_details = self.iam_client.get_policy(PolicyArn=policy['PolicyArn'])
+                    policy_version = self.iam_client.get_policy_version(
+                        PolicyArn=policy['PolicyArn'],
+                        VersionId=policy_details['Policy']['DefaultVersionId']
+                    )
+                    
+                    # Handle both single statement (dict) and multiple statements (list)
+                    statements = policy_version['PolicyVersion']['Document']['Statement']
+                    if isinstance(statements, dict):
+                        statements = [statements]
+                    
+                    # Compare policy permissions with used actions
+                    for statement in statements:
+                        if 'Action' in statement:
+                            actions = statement['Action']
+                            if isinstance(actions, str):
+                                actions = [actions]
+                            
+                            for action in actions:
+                                if action not in used_actions and action != '*':
+                                    unused_permissions.append(action)
+                except Exception as e:
+                    print(f"Error analyzing policy {policy['PolicyArn']}: {str(e)}")
             
             return {
-                'unused_permissions': unused_permissions,
+                'unused_permissions': list(set(unused_permissions)),  # Remove duplicates
                 'days_analyzed': days
             }
         except Exception as e:

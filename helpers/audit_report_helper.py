@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import plotly.graph_objects as go
 import plotly.express as px
 from .permission_analysis_helper import PermissionAnalysisHelper
@@ -110,7 +110,7 @@ class AuditReportHelper:
         # Get access key details
         access_keys = self.security_helper.iam_client.list_access_keys(UserName=username)['AccessKeyMetadata']
         for key in access_keys:
-            key_age = (datetime.now(key['CreateDate'].tzinfo) - key['CreateDate']).days
+            key_age = (datetime.now(timezone.utc) - key['CreateDate']).days
             report['access_keys'].append({
                 'access_key_id': key['AccessKeyId'],
                 'status': key['Status'],

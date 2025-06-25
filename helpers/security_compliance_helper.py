@@ -1,7 +1,7 @@
 import boto3
 from typing import Dict, List, Any
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 class SecurityComplianceHelper:
     def __init__(self, session: boto3.Session):
@@ -118,7 +118,7 @@ class SecurityComplianceHelper:
                 access_keys = self.iam_client.list_access_keys(UserName=user['UserName'])
                 for key in access_keys['AccessKeyMetadata']:
                     rotation_status['total_keys'] += 1
-                    key_age = (datetime.now(key['CreateDate'].tzinfo) - key['CreateDate']).days
+                    key_age = (datetime.now(timezone.utc) - key['CreateDate']).days
                     
                     if key_age > max_age_days:
                         rotation_status['non_compliant_keys'] += 1

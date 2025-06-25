@@ -832,14 +832,14 @@ aws iam create-access-key --user-name admin-user
                         user_data.append({
                             'Username': report['username'],
                             'User Type': 'Console' if has_console_access else 'CLI-Only',
-                            'MFA Enabled': bool(report['mfa_devices']) if has_console_access else 'N/A',
+                            'MFA Enabled': 'Yes' if (has_console_access and bool(report['mfa_devices'])) else ('No' if has_console_access else 'N/A'),
                             'Access Keys': len(report['access_keys']),
                             'Active Keys': sum(1 for key in report['access_keys'] if key['status'] == 'Active'),
                             'Keys Needing Rotation': sum(1 for key in report['access_keys'] if key['needs_rotation']),
                             'Attached Policies': len(report['permissions']['attached_policies']),
                             'Group Memberships': len(report['permissions']['groups']),
-                            'Has Admin Access': any('AdministratorAccess' in p['PolicyName'] 
-                                                 for p in report['permissions']['attached_policies'])
+                            'Has Admin Access': 'Yes' if any('AdministratorAccess' in p['PolicyName'] 
+                                                 for p in report['permissions']['attached_policies']) else 'No'
                         })
                     
                     df = pd.DataFrame(user_data)
@@ -876,7 +876,7 @@ aws iam create-access-key --user-name admin-user
                                 with open(output_path, "rb") as f:
                                     st.download_button(
                                         label="Download User Analysis Report",
-                                        data=f,
+                                        data=f.read(),
                                         file_name="user_analysis_report.xlsx",
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
@@ -1050,7 +1050,7 @@ aws iam create-access-key --user-name admin-user
                         with open(output_path, "rb") as f:
                             st.download_button(
                                 label="Download Report",
-                                data=f,
+                                data=f.read(),
                                 file_name="audit_report.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
