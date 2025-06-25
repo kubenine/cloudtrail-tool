@@ -32,65 +32,36 @@ class CloudTrailQuery:
             print("Please ensure you have valid AWS credentials configured.")
             raise
 
-    def generate_query(self, query: str, hours: int = 24) -> Optional[str]:
-        """Generate a CloudWatch Logs Insights query from natural language.
+    def generate_query(self, natural_language_query: str, hours: int = 24) -> str:
+        """Generate CloudWatch Logs Insights query from natural language."""
+        # This is a simplified implementation
+        # In practice, you'd use NLP to parse the query and generate appropriate CloudWatch query
         
-        Args:
-            query: Natural language query
-            hours: Time window in hours
-            
-        Returns:
-            CloudWatch Logs Insights query string or None if generation fails
+        base_query = f"""
+        fields @timestamp, eventName, userIdentity.userName, sourceIPAddress, awsRegion
+        | filter @timestamp > now() - {hours}h
+        | sort @timestamp desc
+        | limit 100
         """
-        # Reset token counter for new query
-        token_counter.reset()
         
-        # Calculate time range
-        end_time = datetime.now()
-        start_time = end_time - timedelta(hours=hours)
+        # Add filters based on common query patterns
+        query_lower = natural_language_query.lower()
         
-        # Convert to milliseconds since epoch
-        start_time_ms = int(start_time.timestamp() * 1000)
-        end_time_ms = int(end_time.timestamp() * 1000)
+        if "s3" in query_lower:
+            base_query += "| filter eventSource = 's3.amazonaws.com'"
+        elif "ec2" in query_lower:
+            base_query += "| filter eventSource = 'ec2.amazonaws.com'"
+        elif "iam" in query_lower:
+            base_query += "| filter eventSource = 'iam.amazonaws.com'"
+        elif "root" in query_lower:
+            base_query += "| filter userIdentity.type = 'Root'"
         
-        # Construct a simple, direct prompt
-        prompt = f"""Convert this natural language query into a CloudWatch Logs Insights query.
-Time range: {start_time_ms} to {end_time_ms}
-
-Rules:
-1. Start with: fields @timestamp, @message
-2. Add time filter: filter @timestamp >= {start_time_ms} and @timestamp <= {end_time_ms}
-3. Add your specific filters
-4. End with: sort @timestamp desc | limit 1000
-
-Example:
-Input: "Show me all S3 bucket creations"
-Output: fields @timestamp, @message | filter @timestamp >= {start_time_ms} and @timestamp <= {end_time_ms} | filter @message like /CreateBucket/ | sort @timestamp desc | limit 1000
-
-Now convert this query: "{query}"
-
-Respond with ONLY the query, nothing else."""
-
-        try:
-            # Generate query using GPT-4
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a CloudWatch Logs Insights query generator."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=500
-            )
-            
-            # Update token usage
-            token_counter.update_from_response(response)
-            
-            return response.choices[0].message.content.strip()
-            
-        except Exception as e:
-            print(f"Error generating query: {str(e)}")
-            return None
+        if "create" in query_lower:
+            base_query += "| filter eventName like /Create/"
+        elif "delete" in query_lower:
+            base_query += "| filter eventName like /Delete/"
+        
+        return base_query
 
     def execute_query(self, query):
         """Execute CloudWatch Logs Insights query and return results."""

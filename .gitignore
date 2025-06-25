@@ -95,3 +95,6 @@ TODO.md
 setup.md
 sso.ipynb
 users.json
+
+.streamlit/config.toml
+.streamlit/secrets.toml
