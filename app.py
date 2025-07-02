@@ -892,41 +892,163 @@ aws iam create-access-key --user-name admin-user
                 )
                 
                 if selected_user:
-                    with st.spinner("Analyzing user..."):
+                    with st.spinner("Performing comprehensive risk analysis..."):
+                        # Get comprehensive risk analysis
+                        risk_profile = permission_analysis.analyze_user_risk_profile(selected_user)
                         user_report = audit_report.generate_detailed_user_report(selected_user)
                         
-                        # Display user details
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric("MFA Devices", len(user_report['mfa_devices']))
-                        
-                        with col2:
-                            st.metric("Access Keys", len(user_report['access_keys']))
-                        
-                        with col3:
-                            active_keys = sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
-                            st.metric("Active Access Keys", active_keys)
-                        
-                        # Display permissions
-                        st.markdown("### Permissions")
-                        st.json(user_report['permissions'])
-                        
-                        # Display unused permissions
-                        st.markdown("### Unused Permissions")
-                        if user_report['unused_permissions']['unused_permissions']:
-                            st.warning(f"Found {len(user_report['unused_permissions']['unused_permissions'])} unused permissions")
-                            for perm in user_report['unused_permissions']['unused_permissions']:
-                                st.markdown(f"- `{perm}`")
+                        if risk_profile:
+                            # Risk Summary Header
+                            st.markdown("## 🔍 IAM Permission Risk Assessment")
+                            
+                            # Risk Score and Level Display
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                risk_color = {
+                                    'Critical': '🔴',
+                                    'High': '🟠', 
+                                    'Medium': '🟡',
+                                    'Low': '🟢'
+                                }.get(risk_profile['risk_level'], '⚪')
+                                st.metric(
+                                    f"{risk_color} Risk Level", 
+                                    risk_profile['risk_level'],
+                                    delta=f"Score: {risk_profile['overall_risk_score']}/100"
+                                )
+                            
+                            with col2:
+                                st.metric("Critical Policies", len(risk_profile['critical_policies']))
+                            
+                            with col3:
+                                st.metric("High-Risk Permissions", len(risk_profile['high_risk_permissions']))
+                            
+                            with col4:
+                                st.metric("Unused Permissions", len(risk_profile['unused_permissions']))
+                            
+                            # Risk Level Alert
+                            if risk_profile['risk_level'] == 'Critical':
+                                st.error(f"🚨 **CRITICAL RISK**: User '{selected_user}' poses significant security risks and requires immediate attention!")
+                            elif risk_profile['risk_level'] == 'High':
+                                st.warning(f"⚠️ **HIGH RISK**: User '{selected_user}' has elevated security risks that should be addressed.")
+                            elif risk_profile['risk_level'] == 'Medium':
+                                st.info(f"📋 **MEDIUM RISK**: User '{selected_user}' has some security concerns to review.")
+                            else:
+                                st.success(f"✅ **LOW RISK**: User '{selected_user}' follows security best practices.")
+                            
+                            # AI-Powered Analysis
+                            if risk_profile.get('detailed_analysis') and 'unavailable' not in risk_profile['detailed_analysis']:
+                                st.markdown("### 🤖 AI-Powered Risk Analysis")
+                                st.write(risk_profile['detailed_analysis'])
+                                
+                                # Display token usage metrics
+                                display_token_metrics()
+                            
+                            # Critical Policies Section
+                            if risk_profile['critical_policies']:
+                                st.markdown("### 🔐 Critical AWS Policies Attached")
+                                for policy in risk_profile['critical_policies']:
+                                    with st.expander(f"⚠️ {policy['name']}", expanded=True):
+                                        st.markdown(f"**Description:** {policy['description']}")
+                                        st.markdown(f"**ARN:** `{policy['arn']}`")
+                                        st.warning("This policy grants broad permissions and should be reviewed carefully.")
+                            
+                            # High-Risk Permissions Section
+                            if risk_profile['high_risk_permissions']:
+                                st.markdown("### ⚡ High-Risk Permissions")
+                                risk_by_policy = {}
+                                for perm in risk_profile['high_risk_permissions']:
+                                    policy = perm['policy']
+                                    if policy not in risk_by_policy:
+                                        risk_by_policy[policy] = []
+                                    risk_by_policy[policy].append(perm)
+                                
+                                for policy, perms in risk_by_policy.items():
+                                    with st.expander(f"📝 Policy: {policy} ({len(perms)} high-risk permissions)"):
+                                        for perm in perms:
+                                            st.markdown(f"• **{perm['action']}**: {perm['description']}")
+                            
+                            # Group Inherited Risks
+                            if risk_profile['group_inherited_risks']:
+                                st.markdown("### 👥 Group Inherited Risks")
+                                for group_risk in risk_profile['group_inherited_risks']:
+                                    st.warning(f"Group **{group_risk['group']}** has critical policy **{group_risk['policy']}**: {group_risk['description']}")
+                            
+                            # User Security Profile
+                            st.markdown("### 🛡️ Security Profile")
+                            
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                console_status = "✅ Yes" if risk_profile['console_access'] else "❌ No"
+                                st.metric("Console Access", console_status)
+                            
+                            with col2:
+                                mfa_status = "✅ Enabled" if risk_profile['mfa_enabled'] else "❌ Disabled"
+                                st.metric("MFA Status", mfa_status)
+                            
+                            with col3:
+                                st.metric("Access Keys", len(risk_profile['access_keys']))
+                            
+                            with col4:
+                                old_keys = sum(1 for key in risk_profile['access_keys'] if key['needs_rotation'])
+                                st.metric("Keys Needing Rotation", old_keys)
+                            
+                            # Access Keys Details
+                            if risk_profile['access_keys']:
+                                st.markdown("### 🔑 Access Keys Details")
+                                for i, key in enumerate(risk_profile['access_keys']):
+                                    status_color = "🟢" if key['status'] == 'Active' else "🔴"
+                                    rotation_status = "⚠️ Needs rotation" if key['needs_rotation'] else "✅ Up to date"
+                                    age_warning = " (OLD!)" if key['age_days'] > 90 else ""
+                                    
+                                    st.markdown(f"{status_color} **Key {i+1}**: `{key['access_key_id'][:12]}...` - Age: {key['age_days']} days{age_warning} - {rotation_status}")
+                            
+                            # Recommendations Section
+                            if risk_profile['recommendations']:
+                                st.markdown("### 📋 Immediate Recommendations")
+                                for i, rec in enumerate(risk_profile['recommendations'], 1):
+                                    st.markdown(f"{i}. {rec}")
+                            
+                            # Unused Permissions
+                            if risk_profile['unused_permissions']:
+                                with st.expander(f"🗂️ Unused Permissions ({len(risk_profile['unused_permissions'])} found)"):
+                                    st.markdown("These permissions haven't been used in the last 90 days and could be removed:")
+                                    for perm in risk_profile['unused_permissions'][:20]:  # Show first 20
+                                        st.markdown(f"• `{perm}`")
+                                    if len(risk_profile['unused_permissions']) > 20:
+                                        st.markdown(f"... and {len(risk_profile['unused_permissions']) - 20} more")
+                                    
+                                    st.warning("💡 **Recommendation**: Remove unused permissions to follow the principle of least privilege.")
+                            
+                            # Detailed Permissions (Collapsible)
+                            with st.expander("📄 Detailed Permissions"):
+                                st.json(risk_profile['policy_details'])
+                            
                         else:
-                            st.success("No unused permissions found")
+                            st.error(f"Failed to analyze user '{selected_user}'. Please check user permissions and try again.")
                         
-                        # Display access key details
-                        st.markdown("### Access Keys")
-                        for key in user_report['access_keys']:
-                            status_color = "🟢" if key['status'] == 'Active' else "🔴"
-                            rotation_warning = "⚠️ Needs rotation" if key['needs_rotation'] else "✅ Up to date"
-                            st.markdown(f"{status_color} {key['access_key_id']} - Age: {key['age_days']} days - {rotation_warning}")
+                        # Legacy user report for backward compatibility
+                        with st.expander("📊 Legacy User Report"):
+                            # Display user details
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric("MFA Devices", len(user_report['mfa_devices']))
+                            
+                            with col2:
+                                st.metric("Access Keys", len(user_report['access_keys']))
+                            
+                            with col3:
+                                active_keys = sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
+                                st.metric("Active Access Keys", active_keys)
+                            
+                            # Display access key details
+                            st.markdown("### Access Keys")
+                            for key in user_report['access_keys']:
+                                status_color = "🟢" if key['status'] == 'Active' else "🔴"
+                                rotation_warning = "⚠️ Needs rotation" if key['needs_rotation'] else "✅ Up to date"
+                                st.markdown(f"{status_color} {key['access_key_id']} - Age: {key['age_days']} days - {rotation_warning}")
         
         except Exception as e:
             st.error(f"Error analyzing users: {str(e)}")
@@ -935,18 +1057,153 @@ aws iam create-access-key --user-name admin-user
     with audit_tab3:
         st.subheader("Permission Analysis")
         
+        analysis_mode = st.radio(
+            "Select Analysis Mode",
+            ["Quick Overview", "Comprehensive Risk Assessment", "Permission Changes"]
+        )
+        
         try:
-            # Check for overprivileged accounts
-            with st.spinner("Analyzing permissions..."):
-                overprivileged = permission_analysis.check_overprivileged_accounts()
+            if analysis_mode == "Quick Overview":
+                # Check for overprivileged accounts
+                with st.spinner("Analyzing permissions..."):
+                    overprivileged = permission_analysis.check_overprivileged_accounts()
+                    
+                    if overprivileged:
+                        st.warning(f"Found {len(overprivileged)} overprivileged accounts")
+                        for account in overprivileged:
+                            st.markdown(f"- **{account['username']}**: {account['reason']} (Risk: {account['risk_level']})")
+                    else:
+                        st.success("No overprivileged accounts found")
+            
+            elif analysis_mode == "Comprehensive Risk Assessment":
+                st.markdown("### 🔍 Organization-Wide Risk Assessment")
                 
-                if overprivileged:
-                    st.warning(f"Found {len(overprivileged)} overprivileged accounts")
-                    for account in overprivileged:
-                        st.markdown(f"- **{account['username']}**: {account['reason']} (Risk: {account['risk_level']})")
-                else:
-                    st.success("No overprivileged accounts found")
-                
+                with st.spinner("Performing comprehensive risk analysis for all users..."):
+                    risk_summary = permission_analysis.generate_risk_summary_report()
+                    
+                    if risk_summary:
+                        # Overall Security Score
+                        st.markdown("#### 📊 Overall Security Metrics")
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Total Users", risk_summary['total_users'])
+                        
+                        with col2:
+                            security_score = risk_summary['overall_security_score']
+                            score_color = "🟢" if security_score >= 80 else "🟡" if security_score >= 60 else "🔴"
+                            st.metric(f"{score_color} Security Score", f"{security_score:.1f}/100")
+                        
+                        with col3:
+                            high_risk_count = risk_summary['risk_distribution']['Critical'] + risk_summary['risk_distribution']['High']
+                            st.metric("High Risk Users", high_risk_count)
+                        
+                        with col4:
+                            low_risk_percentage = (risk_summary['risk_distribution']['Low'] / risk_summary['total_users']) * 100
+                            st.metric("Low Risk %", f"{low_risk_percentage:.1f}%")
+                        
+                        # Risk Distribution Chart
+                        st.markdown("#### 📈 Risk Distribution")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Risk distribution pie chart data
+                            import plotly.graph_objects as go
+                            
+                            labels = list(risk_summary['risk_distribution'].keys())
+                            values = list(risk_summary['risk_distribution'].values())
+                            colors = ['#ff4444', '#ff8800', '#ffdd00', '#44ff44']
+                            
+                            fig = go.Figure(data=[go.Pie(
+                                labels=labels, 
+                                values=values,
+                                marker_colors=colors,
+                                hole=0.3
+                            )])
+                            fig.update_layout(
+                                title="User Risk Distribution",
+                                showlegend=True,
+                                height=400
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        with col2:
+                            # Risk distribution table
+                            risk_df = pd.DataFrame([
+                                {'Risk Level': level, 'Count': count, 'Percentage': f"{(count/risk_summary['total_users'])*100:.1f}%"}
+                                for level, count in risk_summary['risk_distribution'].items()
+                            ])
+                            st.dataframe(risk_df, use_container_width=True)
+                        
+                        # High Risk Users
+                        if risk_summary['high_risk_users']:
+                            st.markdown("#### 🚨 High-Risk Users Requiring Attention")
+                            for user in risk_summary['high_risk_users']:
+                                risk_color = "🔴" if user['risk_level'] == 'Critical' else "🟠"
+                                with st.expander(f"{risk_color} {user['username']} - {user['risk_level']} Risk (Score: {user['risk_score']})"):
+                                    st.markdown("**Key Issues:**")
+                                    for issue in user['key_issues']:
+                                        st.markdown(f"• {issue}")
+                                    
+                                    # Quick action button
+                                    if st.button(f"Analyze {user['username']} in Detail", key=f"analyze_{user['username']}"):
+                                        st.session_state['selected_user_for_analysis'] = user['username']
+                                        st.rerun()
+                        
+                        # Common Vulnerabilities
+                        if risk_summary['common_vulnerabilities']:
+                            st.markdown("#### 🔍 Most Common Security Issues")
+                            for vulnerability, count in risk_summary['common_vulnerabilities']:
+                                percentage = (count / risk_summary['total_users']) * 100
+                                st.markdown(f"• **{vulnerability}**: {count} users ({percentage:.1f}%)")
+                        
+                        # Export Risk Assessment
+                        if st.button("Export Risk Assessment Report"):
+                            try:
+                                with st.spinner("Generating comprehensive risk report..."):
+                                    # Create a detailed Excel report
+                                    output_path = "comprehensive_risk_assessment.xlsx"
+                                    
+                                    with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+                                        # Summary sheet
+                                        summary_data = {
+                                            'Metric': ['Total Users', 'Overall Security Score', 'Critical Risk Users', 
+                                                     'High Risk Users', 'Medium Risk Users', 'Low Risk Users'],
+                                            'Value': [
+                                                risk_summary['total_users'],
+                                                f"{risk_summary['overall_security_score']:.1f}",
+                                                risk_summary['risk_distribution']['Critical'],
+                                                risk_summary['risk_distribution']['High'],
+                                                risk_summary['risk_distribution']['Medium'],
+                                                risk_summary['risk_distribution']['Low']
+                                            ]
+                                        }
+                                        pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+                                        
+                                        # High risk users
+                                        if risk_summary['high_risk_users']:
+                                            high_risk_df = pd.DataFrame(risk_summary['high_risk_users'])
+                                            high_risk_df.to_excel(writer, sheet_name='High Risk Users', index=False)
+                                        
+                                        # Common vulnerabilities
+                                        if risk_summary['common_vulnerabilities']:
+                                            vuln_df = pd.DataFrame(risk_summary['common_vulnerabilities'], 
+                                                                 columns=['Vulnerability', 'User Count'])
+                                            vuln_df.to_excel(writer, sheet_name='Common Vulnerabilities', index=False)
+                                
+                                with open(output_path, "rb") as f:
+                                    st.download_button(
+                                        label="Download Comprehensive Risk Assessment",
+                                        data=f.read(),
+                                        file_name="comprehensive_risk_assessment.xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                            except Exception as e:
+                                st.error(f"Error exporting report: {str(e)}")
+                    else:
+                        st.error("Failed to generate risk summary. Please check permissions and try again.")
+            
+            else:  # Permission Changes
                 # Display permission changes
                 st.markdown("### Recent Permission Changes")
                 changes_df = permission_analysis.track_permission_changes()
