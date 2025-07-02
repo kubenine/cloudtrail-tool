@@ -1,6 +1,6 @@
 import boto3
 import os
-from typing import Optional
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -8,118 +8,79 @@ class AWSAuth:
     """Centralized AWS authentication helper that uses default AWS auth unless explicit credentials are provided."""
     
     def __init__(self):
-        # Find and load the .env file
-        env_path = None
-        
-        # Try current directory
-        if os.path.exists('.env'):
-            env_path = '.env'
-        # Try parent directory
-        elif os.path.exists('../.env'):
-            env_path = '../.env'
-        # Try absolute path from project root
-        else:
-            project_root = Path(__file__).resolve().parent.parent
-            env_file = project_root / '.env'
-            if env_file.exists():
-                env_path = str(env_file)
-        
-        if env_path:
-            load_dotenv(dotenv_path=env_path)
-        
-        # Get credentials from environment variables
-        self.aws_access_key: Optional[str] = os.getenv('AWS_ACCESS_KEY_ID')
-        self.aws_secret_key: Optional[str] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        self.aws_region: str = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
-        self.session_token: Optional[str] = os.getenv('AWS_SESSION_TOKEN')
-        
-        # Determine if we should use explicit credentials or default auth
-        self.use_explicit_credentials = bool(self.aws_access_key and self.aws_secret_key)
+        """Initialize AWS authentication."""
+        self.session = None
+        self._initialize_session()
     
-    def create_session(self, region_name: Optional[str] = None) -> boto3.Session:
-        """Create a boto3 session with appropriate authentication.
-        
-        Args:
-            region_name: AWS region name (optional, defaults to configured region)
-            
-        Returns:
-            Configured boto3 session
-        """
-        region = region_name or self.aws_region
-        
-        if self.use_explicit_credentials:
-            # Use explicit credentials from environment/config
-            session_kwargs = {
-                'aws_access_key_id': self.aws_access_key,
-                'aws_secret_access_key': self.aws_secret_key,
-                'region_name': region
-            }
-            
-            if self.session_token:
-                session_kwargs['aws_session_token'] = self.session_token
-                
-            return boto3.Session(**session_kwargs)
-        else:
-            # Use default AWS credential provider chain
-            return boto3.Session(region_name=region)
+    def _initialize_session(self):
+        """Initialize boto3 session with available credentials."""
+        try:
+            # Try to create session with environment variables first
+            if os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY'):
+                self.session = boto3.Session(
+                    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                    region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+                )
+            else:
+                # Fall back to default credential chain
+                self.session = boto3.Session(
+                    region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+                )
+        except Exception as e:
+            raise Exception(f"Failed to initialize AWS session: {e}")
     
-    def create_client(self, service_name: str, region_name: Optional[str] = None) -> boto3.client:
-        """Create a boto3 client with appropriate authentication.
-        
-        Args:
-            service_name: AWS service name (e.g., 'logs', 'iam', 'identitystore')
-            region_name: AWS region name (optional, defaults to configured region)
+    def create_client(self, service_name: str, region_name: Optional[str] = None):
+        """Create AWS service client."""
+        try:
+            if region_name:
+                return self.session.client(service_name, region_name=region_name)
+            return self.session.client(service_name)
+        except Exception as e:
+            raise Exception(f"Failed to create {service_name} client: {e}")
+    
+    def create_resource(self, service_name: str, region_name: Optional[str] = None):
+        """Create AWS service resource."""
+        try:
+            if region_name:
+                return self.session.resource(service_name, region_name=region_name)
+            return self.session.resource(service_name)
+        except Exception as e:
+            raise Exception(f"Failed to create {service_name} resource: {e}")
+    
+    def create_session(self):
+        """Return the boto3 session."""
+        return self.session
+    
+    def get_auth_info(self) -> Dict[str, Any]:
+        """Get current authentication information."""
+        try:
+            # Try to get caller identity to verify credentials
+            sts = self.create_client('sts')
+            identity = sts.get_caller_identity()
             
-        Returns:
-            Configured boto3 client
-        """
-        region = region_name or self.aws_region
-        
-        if self.use_explicit_credentials:
-            # Use explicit credentials from environment/config
-            client_kwargs = {
-                'aws_access_key_id': self.aws_access_key,
-                'aws_secret_access_key': self.aws_secret_key,
-                'region_name': region
+            return {
+                'using_explicit_credentials': bool(os.getenv('AWS_ACCESS_KEY_ID')),
+                'access_key_id': os.getenv('AWS_ACCESS_KEY_ID', '').replace(os.getenv('AWS_ACCESS_KEY_ID', '')[:4], '****') if os.getenv('AWS_ACCESS_KEY_ID') else None,
+                'region': self.session.region_name,
+                'account_id': identity.get('Account'),
+                'user_id': identity.get('UserId'),
+                'arn': identity.get('Arn')
             }
-            
-            if self.session_token:
-                client_kwargs['aws_session_token'] = self.session_token
-                
-            return boto3.client(service_name, **client_kwargs)
-        else:
-            # Use default AWS credential provider chain
-            # This includes: environment variables, AWS credentials file, IAM roles, etc.
-            return boto3.client(service_name, region_name=region)
+        except Exception as e:
+            return {
+                'using_explicit_credentials': bool(os.getenv('AWS_ACCESS_KEY_ID')),
+                'access_key_id': None,
+                'region': self.session.region_name if self.session else 'Unknown',
+                'error': str(e)
+            }
     
     def has_credentials(self) -> bool:
-        """Check if AWS credentials are available (either explicit or default).
-        
-        Returns:
-            True if credentials are available, False otherwise
-        """
-        if self.use_explicit_credentials:
-            return True
-        
-        # Try to create a simple client to test default credentials
+        """Check if AWS credentials are available."""
         try:
-            # Use STS to test credentials without making actual API calls
-            sts_client = boto3.client('sts', region_name=self.aws_region)
-            # This will raise an exception if no credentials are available
-            sts_client._make_request.__defaults__
+            # Try to get caller identity to verify credentials
+            sts = self.create_client('sts')
+            sts.get_caller_identity()
             return True
         except Exception:
-            return False
-    
-    def get_auth_info(self) -> dict:
-        """Get information about the current authentication method.
-        
-        Returns:
-            Dictionary with authentication information
-        """
-        return {
-            'using_explicit_credentials': self.use_explicit_credentials,
-            'region': self.aws_region,
-            'has_session_token': bool(self.session_token),
-            'access_key_id': self.aws_access_key[:8] + '...' if self.aws_access_key else None
-        } 
+            return False 

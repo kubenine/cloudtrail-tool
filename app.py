@@ -536,529 +536,1011 @@ with tab4:
 with tab5:
     st.header("Account Audit")
     
-    # Create sub-tabs for different audit features
-    audit_tab1, audit_tab2, audit_tab3, audit_tab4 = st.tabs([
+    # Create sub-tabs for different audit features - ADD ACCOUNT SUMMARY TAB
+    audit_tab1, audit_tab2, audit_tab3, audit_tab4, audit_tab5 = st.tabs([
+        "Account Summary",  # NEW TAB
         "Security Overview",
-        "User Analysis",
+        "User Analysis", 
         "Permission Analysis",
         "Compliance Reports"
     ])
     
-    # Security Overview Tab
+    # NEW: Account Summary Tab
     with audit_tab1:
-        st.subheader("Security Overview")
+        st.subheader("📊 30-Day Account Summary")
+        st.markdown("*Comprehensive overview of account activities, users, and resource usage over the past 30 days*")
         
-        # Security Score
-        try:
-            with st.spinner("Calculating security score..."):
-                security_score = security_compliance.get_security_score()
-                
-                # Display score in a metric
-                st.metric(
-                    "Security Score",
-                    f"{security_score['score']}/100",
-                    delta=None if security_score['score'] >= 90 else f"{90 - security_score['score']} points below target"
-                )
-                
-                # Display detailed breakdown of score issues with fixes
-                if security_score['score'] < 100:
-                    st.markdown("### 🔍 Security Score Breakdown & Recommended Fixes")
+        # Generate Account Summary Button
+        if st.button("🔍 Generate Account Summary", type="primary"):
+            try:
+                with st.spinner("🔄 Analyzing 30 days of account activity... This may take a few minutes"):
                     
-                    # Get detailed information for each category
-                    password_policy = security_compliance.check_password_policy()
-                    mfa_status = security_compliance.check_mfa_status()
-                    key_rotation = security_compliance.check_access_key_rotation()
-                    root_usage = security_compliance.monitor_root_account_usage(days=7)
+                    # Progress tracking
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    # Password Policy Issues
-                    if isinstance(password_policy, dict) and 'error' not in password_policy:
-                        non_compliant_policies = {k: v for k, v in password_policy.items() if not v['compliant']}
-                        if non_compliant_policies:
-                            with st.expander(f"❌ Password Policy Issues (-{len(non_compliant_policies) * 5} points)", expanded=True):
-                                st.markdown("**Issues Found:**")
-                                for policy_name, details in non_compliant_policies.items():
-                                    st.markdown(f"• **{policy_name.replace('_', ' ').title()}**: Current: `{details['current']}`, Recommended: `{details['recommended']}`")
-                                
-                                st.markdown("**How to Fix:**")
-                                st.code("""
-# Update account password policy using AWS CLI:
-aws iam update-account-password-policy \\
-    --minimum-password-length 14 \\
-    --require-symbols \\
-    --require-numbers \\
-    --require-uppercase-characters \\
-    --require-lowercase-characters \\
-    --password-reuse-prevention 24 \\
-    --max-password-age 90
-                                """, language="bash")
-                                st.markdown("**Or via AWS Console:** IAM → Account settings → Password policy → Edit")
+                    # Step 1: Get account information
+                    status_text.text("📋 Gathering account information...")
+                    progress_bar.progress(10)
                     
-                    # MFA Issues (Console Users Only)
-                    if 'error' not in mfa_status and mfa_status['console_users'] > 0:
-                        mfa_percentage = (mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100
-                        if mfa_percentage < 100:
-                            points_lost = int(15 * (100 - mfa_percentage) / 100)
-                            with st.expander(f"❌ MFA Not Enabled for Console Users (-{points_lost} points)", expanded=True):
-                                st.markdown("**Issues Found:**")
-                                st.markdown(f"• {mfa_status['console_mfa_disabled']} console users without MFA:")
-                                for user in mfa_status['console_users_without_mfa']:
-                                    st.markdown(f"  - {user}")
-                                
-                                st.markdown("**How to Fix:**")
-                                st.markdown("**For each user via AWS Console:**")
-                                st.markdown("1. Go to IAM → Users → [Username] → Security credentials")
-                                st.markdown("2. In 'Multi-factor authentication (MFA)' section, click 'Assign MFA device'")
-                                st.markdown("3. Choose device type (Virtual MFA device recommended)")
-                                st.markdown("4. Follow the setup wizard")
-                                
-                                st.markdown("**Via AWS CLI:**")
-                                st.code("""
-# Create virtual MFA device
-aws iam create-virtual-mfa-device --virtual-mfa-device-name <username>-mfa --outfile qr-code.png --bootstrap-method QRCodePNG
-
-# Enable MFA device (after scanning QR code)
-aws iam enable-mfa-device --user-name <username> --serial-number <mfa-device-arn> --authentication-code-1 <code1> --authentication-code-2 <code2>
-                                """, language="bash")
+                    account_info = aws_auth.create_client('sts').get_caller_identity()
+                    account_id = account_info['Account']
                     
-                    # Access Key Rotation Issues
-                    if 'error' not in key_rotation and key_rotation['non_compliant_keys'] > 0:
-                        points_lost = key_rotation['non_compliant_keys'] * 3
-                        with st.expander(f"⚠️ Access Keys Need Rotation (-{points_lost} points)", expanded=True):
-                            st.markdown("**Issues Found:**")
-                            st.markdown(f"• {key_rotation['non_compliant_keys']} access keys older than 90 days:")
-                            for key in key_rotation['keys_requiring_rotation']:
-                                st.markdown(f"  - User: `{key['username']}`, Key: `{key['access_key_id']}`, Age: {key['age_days']} days")
-                            
-                            st.markdown("**How to Fix:**")
-                            st.markdown("**For each user via AWS Console:**")
-                            st.markdown("1. Go to IAM → Users → [Username] → Security credentials")
-                            st.markdown("2. In 'Access keys' section, click 'Create access key'")
-                            st.markdown("3. Update applications with new key")
-                            st.markdown("4. Test applications with new key")
-                            st.markdown("5. Delete old access key")
-                            
-                            st.markdown("**Via AWS CLI:**")
-                            st.code("""
-# Create new access key
-aws iam create-access-key --user-name <username>
-
-# After updating applications, delete old key
-aws iam delete-access-key --user-name <username> --access-key-id <old-access-key-id>
-                            """, language="bash")
+                    # Step 2: Get all users (IAM + SSO)
+                    status_text.text("👥 Analyzing user accounts...")
+                    progress_bar.progress(20)
                     
-                    # Root Account Usage Issues
-                    if root_usage and 'error' not in root_usage[0] and len(root_usage) > 0:
-                        points_lost = len(root_usage) * 10
-                        with st.expander(f"🚨 Root Account Usage Detected (-{points_lost} points)", expanded=True):
-                            st.markdown("**Issues Found:**")
-                            st.markdown(f"• Root account used {len(root_usage)} times in the past week:")
-                            for activity in root_usage[:5]:  # Show first 5 activities
-                                st.markdown(f"  - {activity['timestamp'].strftime('%Y-%m-%d %H:%M')}: {activity['event_name']}")
-                            if len(root_usage) > 5:
-                                st.markdown(f"  - ... and {len(root_usage) - 5} more activities")
-                            
-                            st.markdown("**How to Fix:**")
-                            st.markdown("**Immediate Actions:**")
-                            st.markdown("1. **Stop using root account** for daily activities")
-                            st.markdown("2. **Create admin IAM user** if not already exists")
-                            st.markdown("3. **Enable MFA on root account**")
-                            st.markdown("4. **Remove root access keys** if any exist")
-                            
-                            st.markdown("**Create Admin User via AWS CLI:**")
-                            st.code("""
-# Create admin user
-aws iam create-user --user-name admin-user
-
-# Attach admin policy
-aws iam attach-user-policy --user-name admin-user --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
-
-# Create login profile
-aws iam create-login-profile --user-name admin-user --password '<secure-password>' --password-reset-required
-
-# Create access key if needed
-aws iam create-access-key --user-name admin-user
-                            """, language="bash")
-                
-                else:
-                    st.success("🎉 Perfect Security Score! No issues found.")
-                
-                # Display findings
-                if security_score['findings']:
-                    st.warning("Security Findings Summary")
-                    for finding in security_score['findings']:
-                        st.markdown(f"- {finding}")
-                else:
-                    st.success("No critical security findings")
-                
-                # Display charts
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.plotly_chart(audit_report.generate_security_score_chart(), use_container_width=True)
-                
-                with col2:
-                    st.plotly_chart(audit_report.generate_mfa_status_chart(), use_container_width=True)
-        
-        except Exception as e:
-            st.error(f"Error generating security overview: {str(e)}")
-    
-    # User Analysis Tab
-    with audit_tab2:
-        st.subheader("User Analysis")
-        
-        analysis_type = st.radio(
-            "Select Analysis Type",
-            ["All Users Overview", "Individual User Analysis"]
-        )
-        
-        try:
-            if analysis_type == "All Users Overview":
-                with st.spinner("Analyzing all users..."):
-                    # Get list of all IAM users
-                    users = aws_auth.create_client('iam').list_users()['Users']
+                    iam_users = cloudtrail.list_iam_users()
+                    try:
+                        sso_users = cloudtrail.list_sso_users()
+                    except:
+                        sso_users = []
                     
-                    # Create summary metrics
-                    total_users = len(users)
+                    total_users = len(iam_users) + len(sso_users)
                     
-                    # Initialize counters
-                    total_mfa_enabled = 0
-                    total_access_keys = 0
-                    total_active_keys = 0
-                    users_with_admin = 0
-                    users_without_mfa = []
-                    users_with_old_keys = []
-                    console_users = 0
-                    cli_only_users = 0
+                    # Step 3: Get major activities for all users (limited to top 100)
+                    status_text.text("🔍 Analyzing user activities (last 30 days)...")
+                    progress_bar.progress(40)
                     
-                    # Create a list to store all user reports for the detailed table
-                    all_user_reports = []
+                    all_activities = []
+                    user_activity_summary = {}
                     
-                    for user in users:
-                        user_report = audit_report.generate_detailed_user_report(user['UserName'])
-                        all_user_reports.append(user_report)
-                        
-                        # Check if user has console access
-                        has_console_access = False
+                    # Get IAM user activities
+                    for user in iam_users[:50]:  # Limit to 50 IAM users for performance
                         try:
-                            aws_auth.create_client('iam').get_login_profile(UserName=user['UserName'])
-                            has_console_access = True
-                            console_users += 1
-                        except Exception:
-                            cli_only_users += 1
-                        
-                        # Update MFA counter (only for console users)
-                        if has_console_access:
-                            if user_report['mfa_devices']:
-                                total_mfa_enabled += 1
-                            else:
-                                users_without_mfa.append(user['UserName'])
-                        
-                        total_access_keys += len(user_report['access_keys'])
-                        total_active_keys += sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
-                        
-                        # Check for admin access
-                        for policy in user_report['permissions']['attached_policies']:
-                            if 'AdministratorAccess' in policy['PolicyName']:
-                                users_with_admin += 1
-                                break
-                        
-                        # Check for old access keys
-                        for key in user_report['access_keys']:
-                            if key['needs_rotation']:
-                                users_with_old_keys.append({
-                                    'username': user['UserName'],
-                                    'key_id': key['access_key_id'],
-                                    'age_days': key['age_days']
-                                })
+                            user_events = cloudtrail.get_user_events(user['username'], hours=720)  # 30 days
+                            if user_events:
+                                # Keep only significant events (not Read-only operations)
+                                significant_events = [
+                                    event for event in user_events 
+                                    if not any(read_only in event['event_name'].lower() 
+                                             for read_only in ['describe', 'list', 'get', 'lookup'])
+                                ]
+                                all_activities.extend(significant_events[:20])  # Top 20 per user
+                                user_activity_summary[user['username']] = {
+                                    'type': 'IAM',
+                                    'total_events': len(user_events),
+                                    'significant_events': len(significant_events),
+                                    'most_recent': user_events[0]['timestamp'] if user_events else 'No activity'
+                                }
+                        except:
+                            user_activity_summary[user['username']] = {
+                                'type': 'IAM',
+                                'total_events': 0,
+                                'significant_events': 0,
+                                'most_recent': 'No activity'
+                            }
                     
-                    # Display summary metrics in columns
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Total Users", total_users)
-                    
-                    with col2:
-                        if console_users > 0:
-                            st.metric("Console MFA Adoption", f"{(total_mfa_enabled/console_users)*100:.1f}%")
-                        else:
-                            st.metric("Console Users", "0")
-                    
-                    with col3:
-                        st.metric("Active Access Keys", total_active_keys)
-                    
-                    with col4:
-                        st.metric("Admin Users", users_with_admin)
-                    
-                    # Additional metrics row
-                    col5, col6, col7, col8 = st.columns(4)
-                    
-                    with col5:
-                        st.metric("Console Users", console_users)
-                    
-                    with col6:
-                        st.metric("CLI-Only Users", cli_only_users)
-                    
-                    with col7:
-                        st.metric("Keys Needing Rotation", len(users_with_old_keys))
-                    
-                    with col8:
-                        st.metric("Users Without MFA", len(users_without_mfa))
-                    
-                    # Display security warnings if any
-                    if users_without_mfa:
-                        st.warning("Console Users Without MFA (Security Risk)")
-                        for user in users_without_mfa:
-                            st.markdown(f"- {user}")
-                    
-                    if users_with_old_keys:
-                        st.warning("Users With Keys Needing Rotation")
-                        for entry in users_with_old_keys:
-                            st.markdown(f"- {entry['username']}: Key {entry['key_id']} ({entry['age_days']} days old)")
-                    
-                    # Create a detailed table of all users
-                    st.markdown("### Detailed User Overview")
-                    
-                    # Convert user reports to a DataFrame for better display
-                    user_data = []
-                    for report in all_user_reports:
-                        # Check if user has console access
-                        has_console_access = False
+                    # Get SSO user activities
+                    for user in sso_users[:50]:  # Limit to 50 SSO users for performance
                         try:
-                            aws_auth.create_client('iam').get_login_profile(UserName=report['username'])
-                            has_console_access = True
-                        except Exception:
-                            has_console_access = False
+                            user_events = cloudtrail.get_sso_user_events(user['username'], hours=720)  # 30 days
+                            if user_events:
+                                significant_events = [
+                                    event for event in user_events 
+                                    if not any(read_only in event['event_name'].lower() 
+                                             for read_only in ['describe', 'list', 'get', 'lookup'])
+                                ]
+                                all_activities.extend(significant_events[:20])  # Top 20 per user
+                                user_activity_summary[user['username']] = {
+                                    'type': 'SSO',
+                                    'total_events': len(user_events),
+                                    'significant_events': len(significant_events),
+                                    'most_recent': user_events[0]['timestamp'] if user_events else 'No activity'
+                                }
+                        except:
+                            user_activity_summary[user['username']] = {
+                                'type': 'SSO',
+                                'total_events': 0,
+                                'significant_events': 0,
+                                'most_recent': 'No activity'
+                            }
+                    
+                    progress_bar.progress(60)
+                    
+                    # Step 4: Get resource activities
+                    status_text.text("🏗️ Analyzing resource activities...")
+                    
+                    # Get major resource changes
+                    resource_query = "Show me all resource creation, deletion, and modification activities in the last 30 days"
+                    try:
+                        _, resource_events = cloudtrail.search_events(resource_query, hours=720)
+                        # Filter to significant resource events only
+                        significant_resource_events = [
+                            event for event in resource_events
+                            if any(action in event['event_name'].lower() 
+                                  for action in ['create', 'delete', 'terminate', 'modify', 'update', 'attach', 'detach'])
+                        ]
+                        all_activities.extend(significant_resource_events[:30])  # Top 30 resource events
+                    except:
+                        significant_resource_events = []
+                    
+                    progress_bar.progress(80)
+                    
+                    # Step 5: Sort and limit to top 100 activities
+                    status_text.text("📈 Generating summary...")
+                    
+                    # Sort all activities by timestamp (most recent first)
+                    all_activities.sort(key=lambda x: x['timestamp'], reverse=True)
+                    top_activities = all_activities[:100]  # Limit to top 100 as requested
+                    
+                    # Step 6: Generate AI summary
+                    if openai_api_key and top_activities:
+                        # Prepare comprehensive data for security audit analysis
+                        security_data = {
+                            'account_overview': {
+                                'account_id': account_id,
+                                'total_users': total_users,
+                                'iam_users': len(iam_users),
+                                'sso_users': len(sso_users),
+                                'total_activities': len(all_activities),
+                                'significant_activities': len(top_activities),
+                                'resource_changes': len(significant_resource_events)
+                            },
+                            'user_activity_patterns': user_activity_summary,
+                            'critical_activities': [activity for activity in top_activities 
+                                                  if any(critical in activity['event_name'].lower() 
+                                                        for critical in ['delete', 'terminate', 'destroy', 'remove'])],
+                            'admin_activities': [activity for activity in top_activities 
+                                               if any(admin in activity['event_name'].lower() 
+                                                     for admin in ['policy', 'role', 'user', 'group', 'permission'])],
+                            'network_activities': [activity for activity in top_activities 
+                                                 if any(network in activity['event_name'].lower() 
+                                                       for network in ['vpc', 'subnet', 'security', 'route', 'gateway'])],
+                            'access_activities': [activity for activity in top_activities 
+                                                if any(access in activity['event_name'].lower() 
+                                                      for access in ['login', 'assume', 'switch', 'federate'])],
+                            'data_activities': [activity for activity in top_activities 
+                                              if any(data in activity['event_name'].lower() 
+                                                    for data in ['s3', 'bucket', 'object', 'database', 'rds'])],
+                            'recent_activities': top_activities[:50]  # Most recent 50 for detailed analysis
+                        }
                         
-                        user_data.append({
-                            'Username': report['username'],
-                            'User Type': 'Console' if has_console_access else 'CLI-Only',
-                            'MFA Enabled': 'Yes' if (has_console_access and bool(report['mfa_devices'])) else ('No' if has_console_access else 'N/A'),
-                            'Access Keys': len(report['access_keys']),
-                            'Active Keys': sum(1 for key in report['access_keys'] if key['status'] == 'Active'),
-                            'Keys Needing Rotation': sum(1 for key in report['access_keys'] if key['needs_rotation']),
-                            'Attached Policies': len(report['permissions']['attached_policies']),
-                            'Group Memberships': len(report['permissions']['groups']),
-                            'Has Admin Access': 'Yes' if any('AdministratorAccess' in p['PolicyName'] 
-                                                 for p in report['permissions']['attached_policies']) else 'No'
-                        })
-                    
-                    df = pd.DataFrame(user_data)
-                    st.dataframe(df, use_container_width=True)
-                    
-                    # Add export functionality
-                    if st.button("Export User Analysis"):
+                        # Enhanced security auditor prompt
+                        summary_prompt = f"""
+                        You are a senior AWS security auditor conducting a comprehensive 30-day security assessment for AWS Account {account_id}. 
+                        Based on the following detailed activity data, provide a thorough security audit report:
+
+                        ACCOUNT OVERVIEW:
+                        - Account ID: {account_id}
+                        - Total Users: {total_users} (IAM: {len(iam_users)}, SSO: {len(sso_users)})
+                        - Total Activities Analyzed: {len(all_activities)}
+                        - Significant Activities: {len(top_activities)}
+                        - Critical Resource Changes: {len(significant_resource_events)}
+
+                        USER ACTIVITY ANALYSIS:
+                        {chr(10).join([f"- {username}: {data['type']} user, {data['significant_events']} significant activities, last seen: {data['most_recent']}" 
+                                      for username, data in list(user_activity_summary.items())[:20]])}
+
+                        CRITICAL SECURITY ACTIVITIES (Deletions/Terminations):
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} performed {activity['event_name']} on {activity['resource']}" 
+                                      for activity in security_data['critical_activities'][:20]]) if security_data['critical_activities'] else "No critical destructive activities detected"}
+
+                        ADMINISTRATIVE ACTIVITIES (IAM/Policy Changes):
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} performed {activity['event_name']} on {activity['resource']}" 
+                                      for activity in security_data['admin_activities'][:20]]) if security_data['admin_activities'] else "No administrative changes detected"}
+
+                        NETWORK SECURITY ACTIVITIES:
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} performed {activity['event_name']} on {activity['resource']}" 
+                                      for activity in security_data['network_activities'][:15]]) if security_data['network_activities'] else "No network security changes detected"}
+
+                        ACCESS PATTERN ANALYSIS:
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} performed {activity['event_name']} from {activity.get('source_ip', 'Unknown IP')}" 
+                                      for activity in security_data['access_activities'][:15]]) if security_data['access_activities'] else "No unusual access patterns detected"}
+
+                        DATA SECURITY ACTIVITIES:
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} performed {activity['event_name']} on {activity['resource']}" 
+                                      for activity in security_data['data_activities'][:20]]) if security_data['data_activities'] else "No data-related security activities detected"}
+
+                        MOST RECENT SIGNIFICANT ACTIVITIES (Last 50):
+                        {chr(10).join([f"- {activity['timestamp']}: {activity.get('user', 'Unknown')} - {activity['event_name']} on {activity['resource']} from {activity.get('source_ip', 'Unknown')}" 
+                                      for activity in security_data['recent_activities']])}
+
+                        As a security auditor, provide a comprehensive report with the following sections:
+
+                        ## EXECUTIVE SUMMARY
+                        - Overall security posture assessment (3-4 sentences)
+                        - Key risk indicators identified
+                        - Immediate attention items
+                        - Compliance status overview
+
+                        ## DETAILED SECURITY FINDINGS
+
+                        ### 1. USER ACCESS PATTERNS & ANOMALIES
+                        - Analysis of user behavior patterns
+                        - Identification of unusual or suspicious activities
+                        - Dormant vs. highly active accounts
+                        - After-hours or unusual timezone activities
+                        - Multiple failed attempts or suspicious IPs
+
+                        ### 2. PRIVILEGE ESCALATION & ADMINISTRATIVE CHANGES
+                        - IAM policy modifications and their implications
+                        - Role assumption patterns
+                        - Administrative privilege usage
+                        - New user/role creations
+                        - Permission boundary changes
+
+                        ### 3. RESOURCE SECURITY ASSESSMENT
+                        - Critical resource deletions or modifications
+                        - Security group and network ACL changes
+                        - Public exposure risks (S3 buckets, EC2 instances)
+                        - Encryption and key management activities
+                        - Database and storage security changes
+
+                        ### 4. NETWORK SECURITY ANALYSIS
+                        - VPC and network configuration changes
+                        - Security group rule modifications
+                        - Gateway and routing changes
+                        - Potential security perimeter breaches
+
+                        ### 5. DATA PROTECTION & COMPLIANCE
+                        - Data access patterns and anomalies
+                        - Encryption status changes
+                        - Backup and disaster recovery activities
+                        - Cross-region data movements
+                        - Potential data exfiltration indicators
+
+                        ### 6. ACCESS CONTROL EFFECTIVENESS
+                        - MFA usage patterns
+                        - Cross-account access activities
+                        - Service-linked role activities
+                        - API key and credential usage
+
+                        ## RISK ASSESSMENT
+                        - HIGH RISK: Critical security issues requiring immediate action
+                        - MEDIUM RISK: Important security concerns needing attention
+                        - LOW RISK: Minor issues for routine remediation
+                        - INFORMATIONAL: Notable activities for awareness
+
+                        ## RECOMMENDATIONS
+                        ### Immediate Actions (0-7 days)
+                        - Critical security fixes
+                        - Account lockdowns if needed
+                        - Emergency policy changes
+
+                        ### Short-term Actions (1-4 weeks)
+                        - Security enhancements
+                        - Process improvements
+                        - Monitoring enhancements
+
+                        ### Long-term Strategic Actions (1-3 months)
+                        - Architecture improvements
+                        - Security automation
+                        - Compliance framework enhancements
+
+                        ## COMPLIANCE OBSERVATIONS
+                        - Alignment with security frameworks (SOC2, ISO 27001, PCI-DSS)
+                        - Regulatory compliance gaps
+                        - Industry best practice adherence
+
+                        ## MONITORING & ALERTING RECOMMENDATIONS
+                        - CloudWatch alerts to implement
+                        - GuardDuty findings to investigate
+                        - Config rules to establish
+                        - CloudTrail improvements needed
+
+                        Provide specific, actionable insights with technical details. Include severity levels for each finding.
+                        Format in clear sections with bullet points and specific examples from the data.
+                        Be thorough but concise - this is for C-level executives and security teams.
+                        """
+                        
                         try:
-                            with st.spinner("Generating detailed report..."):
-                                output_path = "user_analysis_report.xlsx"
-                                
-                                with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
-                                    # Summary sheet
-                                    summary_data = {
-                                        'Metric': ['Total Users', 'MFA Enabled Users', 'Total Access Keys', 
-                                                 'Active Access Keys', 'Admin Users'],
-                                        'Value': [total_users, total_mfa_enabled, total_access_keys, 
-                                                total_active_keys, users_with_admin]
-                                    }
-                                    pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
-                                    
-                                    # Detailed user data
-                                    df.to_excel(writer, sheet_name='User Details', index=False)
-                                    
-                                    # Users without MFA
-                                    pd.DataFrame(users_without_mfa, columns=['Username'])\
-                                        .to_excel(writer, sheet_name='Users Without MFA', index=False)
-                                    
-                                    # Old access keys
-                                    if users_with_old_keys:
-                                        pd.DataFrame(users_with_old_keys)\
-                                            .to_excel(writer, sheet_name='Keys Needing Rotation', index=False)
-                                
-                                with open(output_path, "rb") as f:
-                                    st.download_button(
-                                        label="Download User Analysis Report",
-                                        data=f.read(),
-                                        file_name="user_analysis_report.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    )
+                            from openai import OpenAI
+                            client = OpenAI(api_key=openai_api_key)
+                            response = client.chat.completions.create(
+                                model="gpt-4",
+                                messages=[{"role": "user", "content": summary_prompt}],
+                                max_tokens=4000,  # Increased for comprehensive analysis
+                                temperature=0.2  # Lower for more factual, professional tone
+                            )
+                            ai_summary = response.choices[0].message.content
+                            
+                            # Generate additional security metrics summary
+                            metrics_prompt = f"""
+                            Based on the AWS account activity data provided, generate a concise security metrics summary:
+                            
+                            - Risk Score (1-100): Based on activities detected
+                            - Activity Volume: Classification of account activity level
+                            - User Behavior: Assessment of user activity patterns
+                            - Resource Changes: Impact assessment of resource modifications
+                            - Security Posture: Overall security health indicator
+                            
+                            Account has {len(security_data['critical_activities'])} critical activities, 
+                            {len(security_data['admin_activities'])} admin changes, 
+                            {len(security_data['network_activities'])} network changes in 30 days.
+                            
+                            Provide: Risk Score: X/100, Activity Level: [Low/Medium/High], Primary Concerns: [List top 3]
+                            Format as: "Risk Score: XX/100 | Activity Level: XXX | Top Concerns: 1) XXX 2) XXX 3) XXX"
+                            """
+                            
+                            metrics_response = client.chat.completions.create(
+                                model="gpt-4",
+                                messages=[{"role": "user", "content": metrics_prompt}],
+                                max_tokens=200,
+                                temperature=0.1
+                            )
+                            security_metrics = metrics_response.choices[0].message.content
+                            
                         except Exception as e:
-                            st.error(f"Error exporting report: {str(e)}")
-            
-            else:  # Individual User Analysis
-                # Get list of IAM users
-                users = aws_auth.create_client('iam').list_users()['Users']
-                selected_user = st.selectbox(
-                    "Select User",
-                    options=[user['UserName'] for user in users]
-                )
-                
-                if selected_user:
-                    with st.spinner("Analyzing user..."):
-                        user_report = audit_report.generate_detailed_user_report(selected_user)
-                        
-                        # Display user details
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            st.metric("MFA Devices", len(user_report['mfa_devices']))
-                        
-                        with col2:
-                            st.metric("Access Keys", len(user_report['access_keys']))
-                        
-                        with col3:
-                            active_keys = sum(1 for key in user_report['access_keys'] if key['status'] == 'Active')
-                            st.metric("Active Access Keys", active_keys)
-                        
-                        # Display permissions
-                        st.markdown("### Permissions")
-                        st.json(user_report['permissions'])
-                        
-                        # Display unused permissions
-                        st.markdown("### Unused Permissions")
-                        if user_report['unused_permissions']['unused_permissions']:
-                            st.warning(f"Found {len(user_report['unused_permissions']['unused_permissions'])} unused permissions")
-                            for perm in user_report['unused_permissions']['unused_permissions']:
-                                st.markdown(f"- `{perm}`")
-                        else:
-                            st.success("No unused permissions found")
-                        
-                        # Display access key details
-                        st.markdown("### Access Keys")
-                        for key in user_report['access_keys']:
-                            status_color = "🟢" if key['status'] == 'Active' else "🔴"
-                            rotation_warning = "⚠️ Needs rotation" if key['needs_rotation'] else "✅ Up to date"
-                            st.markdown(f"{status_color} {key['access_key_id']} - Age: {key['age_days']} days - {rotation_warning}")
-        
-        except Exception as e:
-            st.error(f"Error analyzing users: {str(e)}")
-    
-    # Permission Analysis Tab
-    with audit_tab3:
-        st.subheader("Permission Analysis")
-        
-        try:
-            # Check for overprivileged accounts
-            with st.spinner("Analyzing permissions..."):
-                overprivileged = permission_analysis.check_overprivileged_accounts()
-                
-                if overprivileged:
-                    st.warning(f"Found {len(overprivileged)} overprivileged accounts")
-                    for account in overprivileged:
-                        st.markdown(f"- **{account['username']}**: {account['reason']} (Risk: {account['risk_level']})")
-                else:
-                    st.success("No overprivileged accounts found")
-                
-                # Display permission changes
-                st.markdown("### Recent Permission Changes")
-                changes_df = permission_analysis.track_permission_changes()
-                if not changes_df.empty:
-                    st.dataframe(changes_df)
-                else:
-                    st.info("No recent permission changes found")
-        
-        except Exception as e:
-            st.error(f"Error analyzing permissions: {str(e)}")
-    
-    # Compliance Reports Tab
-    with audit_tab4:
-        st.subheader("Compliance Reports")
-        
-        try:
-            # Password Policy
-            st.markdown("### Password Policy")
-            password_policy = security_compliance.check_password_policy()
-            
-            if 'error' not in password_policy:
-                for setting, details in password_policy.items():
-                    status = "✅" if details['compliant'] else "❌"
-                    st.markdown(f"{status} **{setting}**: Current: {details['current']} (Recommended: {details['recommended']})")
-            else:
-                st.warning(password_policy['error'])
-            
-            # MFA Status
-            st.markdown("### MFA Status")
-            mfa_status = security_compliance.check_mfa_status()
-            
-            if 'error' not in mfa_status:
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Total Users", mfa_status['total_users'])
-                
-                with col2:
-                    st.metric("Console Users", mfa_status['console_users'])
-                
-                with col3:
-                    st.metric("CLI-Only Users", mfa_status['cli_only_users'])
-                
-                if mfa_status['console_users'] > 0:
-                    st.metric("Console MFA Adoption", 
-                             f"{(mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100:.1f}%")
-                    
-                    if mfa_status['console_users_without_mfa']:
-                        st.warning("Console Users without MFA (Security Risk)")
-                        for user in mfa_status['console_users_without_mfa']:
-                            st.markdown(f"- {user}")
+                            ai_summary = f"Detailed AI security analysis unavailable. Error: {str(e)}"
+                            security_metrics = "Security metrics calculation unavailable."
                     else:
-                        st.success("All console users have MFA enabled")
-                else:
-                    st.info("No console users found - all users are CLI-only")
-                
-                # Show CLI users for information
-                if mfa_status['cli_users']:
-                    with st.expander("CLI-Only Users (MFA not required)"):
-                        for user in mfa_status['cli_users']:
-                            st.markdown(f"- {user}")
-            else:
-                st.error(mfa_status['error'])
-            
-            # Access Key Rotation
-            st.markdown("### Access Key Rotation")
-            key_status = security_compliance.check_access_key_rotation()
-            
-            if 'error' not in key_status:
-                st.plotly_chart(audit_report.generate_access_key_age_chart(), use_container_width=True)
-                
-                if key_status['keys_requiring_rotation']:
-                    st.warning("Keys Requiring Rotation")
-                    for key in key_status['keys_requiring_rotation']:
-                        st.markdown(f"- User: {key['username']}, Key: {key['access_key_id']}, Age: {key['age_days']} days")
-            else:
-                st.error(key_status['error'])
-            
-            # Root Account Usage
-            st.markdown("### Root Account Usage")
-            root_usage = security_compliance.monitor_root_account_usage(days=7)
-            
-            if root_usage and 'error' not in root_usage[0]:
-                if len(root_usage) > 0:
-                    st.warning(f"Found {len(root_usage)} root account activities in the past week")
-                    for activity in root_usage:
-                        st.markdown(f"- {activity['timestamp']}: {activity['event_name']} ({activity['event_source']})")
-                else:
-                    st.success("No root account usage detected in the past week")
-            else:
-                st.error("Error checking root account usage")
-            
-            # Export Report
-            st.markdown("### Export Report")
-            if st.button("Export to Excel"):
-                try:
-                    with st.spinner("Generating Excel report..."):
-                        output_path = "audit_report.xlsx"
-                        audit_report.export_to_excel(output_path)
+                        ai_summary = "Comprehensive security analysis requires OpenAI API key configuration."
+                        security_metrics = "Security metrics unavailable."
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Summary generated successfully!")
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    # DISPLAY RESULTS
+                    st.success(f"📊 Account Summary Generated for Account: {account_id}")
+                    
+                    # Account Overview Cards
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("👥 Total Users", total_users)
+                    with col2:
+                        st.metric("📊 Total Activities", len(all_activities))
+                    with col3:
+                        st.metric("🔄 Significant Activities", len(top_activities))
+                    with col4:
+                        st.metric("🏗️ Resource Changes", len(significant_resource_events))
+                    
+                    # AI-Generated Executive Summary
+                    st.markdown("### 🤖 Executive Summary")
+                    st.write(ai_summary)
+                    
+                    # Security Metrics Summary
+                    st.markdown("### 🛡️ Security Risk Assessment")
+                    if 'security_metrics' in locals():
+                        st.info(security_metrics)
                         
-                        with open(output_path, "rb") as f:
+                        # Additional security breakdown
+                        if 'security_data' in locals():
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric(
+                                    "🔴 Critical Activities",
+                                    len(security_data['critical_activities']),
+                                    delta="Deletions/Terminations"
+                                )
+                            
+                            with col2:
+                                st.metric(
+                                    "⚙️ Admin Changes",
+                                    len(security_data['admin_activities']),
+                                    delta="IAM/Policy Changes"
+                                )
+                            
+                            with col3:
+                                st.metric(
+                                    "🟡 Network Changes",
+                                    len(security_data['network_activities']),
+                                    delta="VPC/Security Groups"
+                                )
+                            
+                            with col4:
+                                st.metric(
+                                    "🟢 Access Events",
+                                    len(security_data['access_activities']),
+                                    delta="Login/Assume Role"
+                                )
+                    
+                    # User Activity Overview
+                    st.markdown("### 👥 User Activity Overview (Last 30 Days)")
+                    
+                    if user_activity_summary:
+                        # Create user activity dataframe
+                        user_df_data = []
+                        for username, data in user_activity_summary.items():
+                            user_df_data.append({
+                                'Username': username,
+                                'Type': data['type'],
+                                'Total Events': data['total_events'],
+                                'Significant Events': data['significant_events'],
+                                'Most Recent Activity': data['most_recent']
+                            })
+                        
+                        user_df = pd.DataFrame(user_df_data)
+                        user_df = user_df.sort_values('Significant Events', ascending=False)
+                        
+                        # Display top active users
+                        st.markdown("#### 🔝 Most Active Users")
+                        top_active_users = user_df[user_df['Significant Events'] > 0].head(10)
+                        if not top_active_users.empty:
+                            st.dataframe(top_active_users, use_container_width=True)
+                        else:
+                            st.info("No significant user activities found in the last 30 days.")
+                        
+                        # Display all users with expandable section
+                        with st.expander("📋 All User Activity Summary"):
+                            st.dataframe(user_df, use_container_width=True)
+                    
+                    # Top 100 Activities Detail
+                    st.markdown(f"### 🔍 Top {len(top_activities)} Significant Activities")
+                    st.markdown("*Showing the most important account activities, excluding read-only operations*")
+                    
+                    if top_activities:
+                        # Group activities by date for better presentation
+                        activities_by_date = defaultdict(list)
+                        for activity in top_activities:
+                            date = activity['timestamp'].split(' ')[0]
+                            activities_by_date[date].append(activity)
+                        
+                        # Show activities by date (most recent first)
+                        for date, day_activities in sorted(activities_by_date.items(), reverse=True):
+                            with st.expander(f"📅 {date} ({len(day_activities)} activities)"):
+                                for activity in day_activities:
+                                    time_part = activity['timestamp'].split(' ')[1] if ' ' in activity['timestamp'] else activity['timestamp']
+                                    user = activity.get('user', 'Unknown')
+                                    
+                                    # Color code by activity type
+                                    if any(critical in activity['event_name'].lower() for critical in ['delete', 'terminate']):
+                                        st.markdown(f"🔴 **{time_part}** - `{user}` performed **{activity['event_name']}** on `{activity['resource']}`")
+                                    elif any(create in activity['event_name'].lower() for create in ['create', 'run']):
+                                        st.markdown(f"🟢 **{time_part}** - `{user}` performed **{activity['event_name']}** on `{activity['resource']}`")
+                                    elif any(modify in activity['event_name'].lower() for modify in ['modify', 'update', 'attach', 'detach']):
+                                        st.markdown(f"🟡 **{time_part}** - `{user}` performed **{activity['event_name']}** on `{activity['resource']}`")
+                                    else:
+                                        st.markdown(f"🔵 **{time_part}** - `{user}` performed **{activity['event_name']}** on `{activity['resource']}`")
+                    else:
+                        st.info("No significant activities found in the last 30 days.")
+                    
+                    # Export Option
+                    st.markdown("### 📥 Export Summary")
+                    if st.button("📊 Export to Excel"):
+                        try:
+                            # Create Excel file with summary
+                            from io import BytesIO
+                            import xlsxwriter
+                            
+                            output = BytesIO()
+                            workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+                            
+                            # Summary sheet
+                            summary_sheet = workbook.add_worksheet('Account Summary')
+                            summary_sheet.write('A1', f'Account Summary for {account_id}')
+                            summary_sheet.write('A2', f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+                            summary_sheet.write('A4', 'Total Users:')
+                            summary_sheet.write('B4', total_users)
+                            summary_sheet.write('A5', 'Total Activities:')
+                            summary_sheet.write('B5', len(top_activities))
+                            
+                            # User activity sheet
+                            if user_activity_summary:
+                                user_sheet = workbook.add_worksheet('User Activities')
+                                user_df.to_excel(output, sheet_name='User Activities', index=False, engine='xlsxwriter')
+                            
+                            # Activities sheet
+                            if top_activities:
+                                activities_df = pd.DataFrame(top_activities)
+                                activities_df.to_excel(output, sheet_name='Top Activities', index=False, engine='xlsxwriter')
+                            
+                            workbook.close()
+                            
                             st.download_button(
-                                label="Download Report",
-                                data=f.read(),
-                                file_name="audit_report.xlsx",
+                                label="📥 Download Account Summary Report",
+                                data=output.getvalue(),
+                                file_name=f"account_summary_{account_id}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             )
-                except Exception as e:
-                    st.error(f"Error exporting report: {str(e)}")
+                        except Exception as e:
+                            st.error(f"Error creating Excel export: {str(e)}")
+                    
+                    # Display token usage for this operation
+                    display_token_metrics()
+                    
+            except Exception as e:
+                st.error(f"Error generating account summary: {str(e)}")
+                st.error("Please ensure you have proper AWS permissions and CloudTrail is configured.")
+
+    # Security Overview Tab
+    with audit_tab2:
+        st.subheader("🛡️ Security Overview")
+        st.markdown("*Comprehensive security posture analysis for your AWS account*")
+        
+        if st.button("🔍 Generate Security Overview", type="primary"):
+            try:
+                with st.spinner("🔄 Analyzing security posture..."):
+                    # Generate security overview using the audit helper
+                    security_overview = audit_report.generate_security_overview()
+                    
+                    if 'error' not in security_overview:
+                        st.success("✅ Security overview generated successfully!")
+                        # Add more security overview content here
+                    else:
+                        st.error(f"Error generating security overview: {security_overview['error']}")
+            
+            except Exception as e:
+                st.error(f"Error generating security overview: {str(e)}")
+
+    # User Analysis Tab  
+    with audit_tab3:
+        st.subheader("👥 User Analysis")
+        st.markdown("*Detailed analysis of user access patterns and compliance*")
+        
+        if st.button("🔍 Generate User Analysis", type="primary"):
+            try:
+                with st.spinner("🔄 Analyzing user access patterns..."):
+                    # Generate user analysis using the audit helper
+                    user_analysis = audit_report.generate_user_analysis()
+                    
+                    if 'error' not in user_analysis:
+                        st.success("✅ User analysis generated successfully!")
+                        # Add more user analysis content here
+                    else:
+                        st.error(f"Error generating user analysis: {user_analysis['error']}")
+            
+            except Exception as e:
+                st.error(f"Error generating user analysis: {str(e)}")
+
+    # Permission Analysis Tab
+    with audit_tab4:
+        st.subheader("🔐 Permission Analysis")
+        st.markdown("*Advanced analysis of user permissions and access patterns*")
+        
+        # User selection for detailed analysis
+        st.markdown("### 👤 Individual User Analysis")
+        try:
+            # Get list of IAM users
+            iam_users = permission_analysis.iam_client.list_users()['Users']
+            user_names = [user['UserName'] for user in iam_users]
+            
+            if user_names:
+                selected_user = st.selectbox("Select a user for detailed permission analysis:", user_names)
+                
+                if st.button("🔍 Analyze User Permissions"):
+                    with st.spinner(f"🔄 Analyzing permissions for {selected_user}..."):
+                        # Get detailed user report
+                        user_report = audit_report.generate_detailed_user_report(selected_user)
+                        
+                        if 'error' not in user_report:
+                            st.success(f"✅ Permission analysis completed for {selected_user}")
+                            
+                            # User basic info
+                            st.markdown(f"#### 👤 User: {selected_user}")
+                            
+                            # MFA devices
+                            mfa_devices = user_report.get('mfa_devices', [])
+                            if mfa_devices:
+                                st.markdown("##### 🔐 MFA Devices")
+                                for device in mfa_devices:
+                                    st.write(f"- {device['SerialNumber']} (Enabled: {device.get('EnableDate', 'Unknown')})")
+                            else:
+                                st.warning("⚠️ No MFA devices configured for this user")
+                            
+                            # Access keys
+                            access_keys = user_report.get('access_keys', [])
+                            if access_keys:
+                                st.markdown("##### 🔑 Access Keys")
+                                keys_df = pd.DataFrame(access_keys)
+                                st.dataframe(keys_df, use_container_width=True)
+                            
+                            # User permissions
+                            permissions = user_report.get('permissions', {})
+                            if permissions:
+                                st.markdown("##### 🛡️ Attached Policies")
+                                attached_policies = permissions.get('attached_policies', [])
+                                if attached_policies:
+                                    for policy in attached_policies:
+                                        st.write(f"- {policy['PolicyName']} (ARN: {policy['PolicyArn']})")
+                                
+                                st.markdown("##### 📜 Inline Policies")
+                                inline_policies = permissions.get('inline_policies', [])
+                                if inline_policies:
+                                    for policy in inline_policies:
+                                        st.write(f"- {policy}")
+                                else:
+                                    st.info("No inline policies found")
+                                
+                                st.markdown("##### 👥 Group Memberships")
+                                groups = permissions.get('groups', [])
+                                if groups:
+                                    for group in groups:
+                                        st.write(f"- {group['GroupName']}")
+                                else:
+                                    st.info("User is not a member of any groups")
+                        else:
+                            st.error("Error analyzing user permissions")
+            else:
+                st.info("No IAM users found in this account")
         
         except Exception as e:
-            st.error(f"Error generating compliance reports: {str(e)}")
+            st.error(f"Error loading users: {str(e)}")
+        
+        # Overall Permission Analysis
+        st.markdown("### 🔍 Account-Wide Permission Analysis")
+        
+        # Initialize session state for permission analysis
+        if 'permission_analysis_complete' not in st.session_state:
+            st.session_state.permission_analysis_complete = False
+        if 'permission_analysis_data' not in st.session_state:
+            st.session_state.permission_analysis_data = {}
+        
+        # Analysis button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            analyze_button = st.button("🔍 Analyze All User Permissions", type="primary")
+        with col2:
+            if st.session_state.permission_analysis_complete:
+                if st.button("🔄 Re-analyze", help="Clear current results and run analysis again"):
+                    st.session_state.permission_analysis_complete = False
+                    st.session_state.permission_analysis_data = {}
+                    st.rerun()
+        
+        # Run analysis if button clicked or show cached results
+        if analyze_button and not st.session_state.permission_analysis_complete:
+            try:
+                with st.spinner("🔄 Analyzing account-wide permissions... This may take a few minutes"):
+                    # Progress tracking
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    status_text.text("📊 Analyzing user permissions and policies...")
+                    progress_bar.progress(20)
+                    
+                    # Get comprehensive permission analysis
+                    permission_analysis_result = permission_analysis.analyze_all_user_permissions()
+                    
+                    progress_bar.progress(100)
+                    status_text.text("✅ Analysis completed!")
+                    
+                    # Clear progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
+                    
+                    if 'error' not in permission_analysis_result:
+                        # Store results in session state
+                        st.session_state.permission_analysis_data = permission_analysis_result
+                        st.session_state.permission_analysis_complete = True
+                        st.success("✅ Analysis completed! Results are now cached and will persist across page interactions.")
+                        st.rerun()
+                    else:
+                        st.error(f"Error analyzing permissions: {permission_analysis_result['error']}")
+            
+            except Exception as e:
+                st.error(f"Error analyzing permissions: {str(e)}")
+        
+        # Display results if analysis is complete
+        if st.session_state.permission_analysis_complete and st.session_state.permission_analysis_data:
+            permission_analysis_result = st.session_state.permission_analysis_data
+            summary_stats = permission_analysis_result['summary_stats']
+            user_analyses = permission_analysis_result['user_analyses']
+            ai_summary = permission_analysis_result.get('ai_summary', '')
+            
+            # Add timestamp info
+            analysis_time = permission_analysis_result.get('timestamp', 'Unknown')
+            st.info(f"📅 **Analysis completed at:** {analysis_time}")
+            
+            # Summary Statistics Cards
+            st.markdown("### 📊 Account Overview")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("👥 Total Users", summary_stats['total_users'])
+            with col2:
+                high_risk = len([u for u in user_analyses if u['risk_level'] == 'High'])
+                st.metric("🔴 High Risk Users", high_risk)
+            with col3:
+                admin_users = len([u for u in user_analyses if u['has_admin_access']])
+                st.metric("⚡ Admin Users", admin_users)
+            with col4:
+                inactive_users = len([u for u in user_analyses if not u.get('last_activity_date')])
+                st.metric("💤 Inactive Users", inactive_users)
+            
+            # AI-Generated Summary
+            if ai_summary:
+                with st.expander("🤖 AI Security Assessment", expanded=True):
+                    st.write(ai_summary)
+                    # Display token usage metrics
+                    display_token_metrics()
+            
+            # Detailed permissions view
+            st.markdown("### 🔑 User Permissions Analysis")
+            
+            # Add CSS for permission cards
+            st.markdown(
+                """
+                <style>
+                .permission-card {
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 10px 0;
+                    border: 1px solid rgba(49, 51, 63, 0.2);
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .permission-card-high {
+                    background-color: #2c2c34;
+                    border-top: 4px solid #ff4b4b;
+                    color: white;
+                }
+                .permission-card-medium {
+                    background-color: #1f1f27;
+                    border-top: 4px solid #ffa726;
+                    color: white;
+                }
+                .permission-card-low {
+                    background-color: #1a1a22;
+                    border-top: 4px solid #2e7d32;
+                    color: white;
+                }
+                .metric-container {
+                    background-color: rgba(255, 255, 255, 0.05);
+                    padding: 10px;
+                    border-radius: 6px;
+                    margin: 5px 0;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # Create columns for the grid layout
+            cols = st.columns(3)
+            col_idx = 0
+            
+            for user in user_analyses:
+                with cols[col_idx]:
+                    risk_class = {
+                        "High": "permission-card-high",
+                        "Medium": "permission-card-medium",
+                        "Low": "permission-card-low"
+                    }.get(user['risk_level'], "")
+                    
+                    total_policies = len(user['attached_policies']) + len(user['inline_policies']) + len(user['group_policies'])
+                    
+                    st.markdown(
+                        f"""<div class="permission-card {risk_class}">
+                            <h4>👤 {user['username']}</h4>
+                            <div class="metric-container">
+                                <strong>Risk Level:</strong> {user['risk_level']}<br>
+                                <strong>Admin Access:</strong> {'Yes ⚠️' if user['has_admin_access'] else 'No ✅'}<br>
+                                <strong>Last Activity:</strong> {user.get('last_activity_date') or 'Never'}
+                            </div>
+                            <div class="metric-container">
+                                <strong>Policy Summary:</strong><br>
+                                Attached: {len(user['attached_policies'])}<br>
+                                Inline: {len(user['inline_policies'])}<br>
+                                Group: {len(user['group_policies'])}<br>
+                                Total: {total_policies}
+                            </div>
+                        </div>""",
+                        unsafe_allow_html=True
+                    )
+                    
+                    # Show capabilities summary
+                    if user['capabilities']:
+                        with st.expander("🛠️ Key Capabilities"):
+                            caps_to_show = user['capabilities'][:5]
+                            for cap in caps_to_show:
+                                st.markdown(f"- {cap}")
+                            if len(user['capabilities']) > 5:
+                                st.markdown(f"- ... and {len(user['capabilities']) - 5} more")
+                    
+                    # Show detailed policies button
+                    if st.button(f"📜 View Policies", key=f"view_policies_{user['username']}"):
+                        with st.expander("Detailed Policies", expanded=True):
+                            policy_tab1, policy_tab2, policy_tab3 = st.tabs([
+                                "Attached",
+                                "Inline",
+                                "Group"
+                            ])
+                            
+                            with policy_tab1:
+                                if user['attached_policies']:
+                                    for policy in user['attached_policies']:
+                                        st.code(policy, language="json")
+                                else:
+                                    st.info("No attached policies")
+                            
+                            with policy_tab2:
+                                if user['inline_policies']:
+                                    for policy in user['inline_policies']:
+                                        st.code(policy, language="json")
+                                else:
+                                    st.info("No inline policies")
+                            
+                            with policy_tab3:
+                                if user['group_policies']:
+                                    for policy in user['group_policies']:
+                                        st.code(policy, language="json")
+                                else:
+                                    st.info("No group policies")
+                    
+                col_idx = (col_idx + 1) % 3
+                
+                # Add a separator between rows
+                if col_idx == 0:
+                    st.markdown("---")
+            
+            # Export Option
+            st.markdown("### 📥 Export Analysis")
+            if st.button("📊 Export User Analysis to Excel"):
+                try:
+                    # Create Excel file with summary
+                    from io import BytesIO
+                    import xlsxwriter
+                    
+                    output = BytesIO()
+                    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+                    
+                    # Risk Analysis sheet
+                    risk_sheet = workbook.add_worksheet('Risk Analysis')
+                    risk_data = []
+                    for user in user_analyses:
+                        risk_data.append({
+                            'Username': user['username'],
+                            'Risk Level': user['risk_level'],
+                            'Admin Access': user['has_admin_access'],
+                            'Last Activity': user['last_activity_date'] or 'Never',
+                            'Attached Policies': len(user['attached_policies']),
+                            'Inline Policies': len(user['inline_policies']),
+                            'Group Policies': len(user['group_policies']),
+                            'Risk Factors': ', '.join(user.get('risk_factors', []))
+                        })
+                    pd.DataFrame(risk_data).to_excel(writer=workbook, sheet_name='Risk Analysis', index=False)
+                    
+                    # Detailed Permissions sheet
+                    details_sheet = workbook.add_worksheet('Detailed Permissions')
+                    details_data = []
+                    for user in user_analyses:
+                        details_data.append({
+                            'Username': user['username'],
+                            'Capabilities': ', '.join(user['capabilities']),
+                            'Attached Policies': ', '.join([str(p) for p in user['attached_policies']]),
+                            'Inline Policies': ', '.join([str(p) for p in user['inline_policies']]),
+                            'Group Policies': ', '.join([str(p) for p in user['group_policies']])
+                        })
+                    pd.DataFrame(details_data).to_excel(writer=workbook, sheet_name='Detailed Permissions', index=False)
+                    
+                    workbook.close()
+                    
+                    st.download_button(
+                        label="📥 Download User Analysis Report",
+                        data=output.getvalue(),
+                        file_name=f"user_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except Exception as e:
+                    st.error(f"Error creating Excel export: {str(e)}")
+            
+            elif not st.session_state.permission_analysis_complete:
+                st.info("👆 Click 'Analyze All User Permissions' to start the comprehensive analysis of user permissions and policies.")
+
+    # Compliance Reports Tab
+    with audit_tab5:
+        st.subheader("📋 Compliance Reports")
+        st.markdown("*Generate comprehensive compliance reports for auditing purposes*")
+        
+        if st.button("📋 Generate Compliance Report", type="primary"):
+            try:
+                with st.spinner("🔄 Generating compliance report..."):
+                    # Generate compliance report using the audit helper
+                    compliance_report = audit_report.generate_compliance_report()
+                    
+                    if 'error' not in compliance_report:
+                        st.success("✅ Compliance report generated successfully!")
+                        
+                        # Display compliance metrics
+                        metrics = compliance_report.get('compliance_metrics', {})
+                        if metrics:
+                            st.markdown("### 📊 Compliance Summary")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                overall_score = metrics.get('overall_score', 0)
+                                st.metric("🎯 Overall Score", f"{overall_score}/100")
+                            
+                            with col2:
+                                findings_count = len(metrics.get('findings', []))
+                                st.metric("⚠️ Total Findings", findings_count)
+                            
+                            with col3:
+                                policy_compliance = metrics.get('password_policy_compliance', 0)
+                                st.metric("🔑 Password Policy", f"{policy_compliance:.1f}%")
+                            
+                            with col4:
+                                mfa_compliance = metrics.get('mfa_compliance_rate', 0)
+                                st.metric("🔐 MFA Compliance", f"{mfa_compliance:.1f}%")
+                            
+                            # Root usage incidents
+                            root_incidents = metrics.get('root_usage_incidents', 0)
+                            if root_incidents > 0:
+                                st.warning(f"⚠️ {root_incidents} root account usage incidents detected")
+                            else:
+                                st.success("✅ No root account usage incidents")
+                        
+                        # Recommendations
+                        recommendations = compliance_report.get('recommendations', [])
+                        if recommendations:
+                            st.markdown("### 💡 Security Recommendations")
+                            for i, recommendation in enumerate(recommendations, 1):
+                                st.write(f"{i}. {recommendation}")
+                        
+                        # Detailed findings
+                        detailed_findings = compliance_report.get('detailed_findings', {})
+                        
+                        # Password Policy Details
+                        password_policy = detailed_findings.get('password_policy', {})
+                        if password_policy and 'error' not in password_policy:
+                            st.markdown("### 🔑 Password Policy Details")
+                            policy_df = []
+                            for setting, details in password_policy.items():
+                                if isinstance(details, dict):
+                                    policy_df.append({
+                                        'Setting': setting.replace('_', ' ').title(),
+                                        'Current': str(details.get('current', 'N/A')),
+                                        'Recommended': str(details.get('recommended', 'N/A')),
+                                        'Compliant': '✅' if details.get('compliant', False) else '❌'
+                                    })
+                            
+                            if policy_df:
+                                st.dataframe(pd.DataFrame(policy_df), use_container_width=True)
+                        
+                        # MFA Status Details
+                        mfa_status = detailed_findings.get('mfa_status', {})
+                        if mfa_status and 'error' not in mfa_status:
+                            st.markdown("### 🔐 MFA Status Details")
+                            
+                            # MFA metrics
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Console Users", mfa_status.get('console_users', 0))
+                            with col2:
+                                st.metric("MFA Enabled", mfa_status.get('console_mfa_enabled', 0))
+                            with col3:
+                                st.metric("MFA Disabled", mfa_status.get('console_mfa_disabled', 0))
+                            
+                            # Users without MFA
+                            users_without_mfa = mfa_status.get('console_users_without_mfa', [])
+                            if users_without_mfa:
+                                st.markdown("#### Users Without MFA")
+                                for user in users_without_mfa:
+                                    st.warning(f"⚠️ {user}")
+                        
+                        # Root Usage Details
+                        root_usage = detailed_findings.get('root_usage', [])
+                        if root_usage and len(root_usage) > 0 and 'error' not in root_usage[0]:
+                            st.markdown("### 👑 Root Account Usage Details")
+                            root_df = pd.DataFrame(root_usage)
+                            st.dataframe(root_df, use_container_width=True)
+                        
+                        # Export compliance report
+                        st.markdown("### 📥 Export Report")
+                        if st.button("📊 Export Compliance Report to Excel"):
+                            try:
+                                # Create a temporary file for export
+                                temp_filename = f"compliance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                                audit_report.export_to_excel(temp_filename)
+                                
+                                # Read the file for download
+                                with open(temp_filename, 'rb') as f:
+                                    excel_data = f.read()
+                                
+                                st.download_button(
+                                    label="📥 Download Compliance Report",
+                                    data=excel_data,
+                                    file_name=temp_filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                                
+                                # Clean up temporary file
+                                import os
+                                if os.path.exists(temp_filename):
+                                    os.remove(temp_filename)
+                                
+                            except Exception as e:
+                                st.error(f"Error exporting report: {str(e)}")
+                    
+                    else:
+                        st.error(f"Error generating compliance report: {compliance_report['error']}")
+            
+            except Exception as e:
+                st.error(f"Error generating compliance report: {str(e)}")
 
 # Footer
 st.markdown("---")

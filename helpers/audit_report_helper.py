@@ -12,6 +12,147 @@ class AuditReportHelper:
         self.permission_helper = permission_helper
         self.security_helper = security_helper
 
+    def generate_security_overview(self) -> Dict[str, Any]:
+        """Generate comprehensive security overview."""
+        try:
+            # Get all security data
+            security_score = self.security_helper.get_security_score()
+            password_policy = self.security_helper.check_password_policy()
+            mfa_status = self.security_helper.check_mfa_status()
+            key_rotation = self.security_helper.check_access_key_rotation()
+            root_usage = self.security_helper.monitor_root_account_usage()
+            overprivileged = self.permission_helper.check_overprivileged_accounts()
+            
+            overview = {
+                'timestamp': datetime.now().isoformat(),
+                'security_score': security_score,
+                'password_policy': password_policy,
+                'mfa_status': mfa_status,
+                'access_key_rotation': key_rotation,
+                'root_account_usage': root_usage,
+                'overprivileged_accounts': overprivileged
+            }
+            
+            return overview
+            
+        except Exception as e:
+            return {'error': f"Error generating security overview: {e}"}
+
+    def generate_user_analysis(self) -> Dict[str, Any]:
+        """Generate user access analysis."""
+        try:
+            # Get user-related data
+            mfa_status = self.security_helper.check_mfa_status()
+            key_rotation = self.security_helper.check_access_key_rotation()
+            overprivileged = self.permission_helper.check_overprivileged_accounts()
+            permission_changes = self.permission_helper.track_permission_changes()
+            
+            analysis = {
+                'timestamp': datetime.now().isoformat(),
+                'total_users': mfa_status.get('total_users', 0),
+                'console_users': mfa_status.get('console_users', 0),
+                'cli_users': mfa_status.get('cli_only_users', 0),
+                'mfa_compliance': {
+                    'enabled': mfa_status.get('console_mfa_enabled', 0),
+                    'disabled': mfa_status.get('console_mfa_disabled', 0),
+                    'users_without_mfa': mfa_status.get('console_users_without_mfa', [])
+                },
+                'access_key_status': {
+                    'total_keys': key_rotation.get('total_keys', 0),
+                    'compliant_keys': key_rotation.get('compliant_keys', 0),
+                    'keys_needing_rotation': key_rotation.get('keys_requiring_rotation', [])
+                },
+                'overprivileged_accounts': overprivileged,
+                'recent_permission_changes': permission_changes.to_dict('records') if not permission_changes.empty else []
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            return {'error': f"Error generating user analysis: {e}"}
+
+    def generate_compliance_report(self) -> Dict[str, Any]:
+        """Generate compliance report."""
+        try:
+            # Get compliance data
+            security_score = self.security_helper.get_security_score()
+            password_policy = self.security_helper.check_password_policy()
+            mfa_status = self.security_helper.check_mfa_status()
+            root_usage = self.security_helper.monitor_root_account_usage()
+            
+            # Calculate compliance metrics
+            compliance_metrics = {
+                'overall_score': security_score.get('score', 0),
+                'findings': security_score.get('findings', []),
+                'password_policy_compliance': self._calculate_policy_compliance(password_policy),
+                'mfa_compliance_rate': self._calculate_mfa_compliance(mfa_status),
+                'root_usage_incidents': len(root_usage) if root_usage else 0
+            }
+            
+            # Generate recommendations
+            recommendations = self._generate_recommendations(security_score, password_policy, mfa_status, root_usage)
+            
+            report = {
+                'timestamp': datetime.now().isoformat(),
+                'compliance_metrics': compliance_metrics,
+                'recommendations': recommendations,
+                'detailed_findings': {
+                    'password_policy': password_policy,
+                    'mfa_status': mfa_status,
+                    'root_usage': root_usage
+                }
+            }
+            
+            return report
+            
+        except Exception as e:
+            return {'error': f"Error generating compliance report: {e}"}
+
+    def _calculate_policy_compliance(self, password_policy: Dict) -> float:
+        """Calculate password policy compliance percentage."""
+        if 'error' in password_policy:
+            return 0.0
+        
+        total_settings = len(password_policy)
+        compliant_settings = sum(1 for setting in password_policy.values() if setting.get('compliant', False))
+        
+        return (compliant_settings / total_settings) * 100 if total_settings > 0 else 0.0
+
+    def _calculate_mfa_compliance(self, mfa_status: Dict) -> float:
+        """Calculate MFA compliance percentage."""
+        if 'error' in mfa_status or mfa_status.get('console_users', 0) == 0:
+            return 100.0  # If no console users, consider it compliant
+        
+        enabled = mfa_status.get('console_mfa_enabled', 0)
+        total = mfa_status.get('console_users', 1)
+        
+        return (enabled / total) * 100
+
+    def _generate_recommendations(self, security_score: Dict, password_policy: Dict, 
+                                 mfa_status: Dict, root_usage: List) -> List[str]:
+        """Generate security recommendations based on findings."""
+        recommendations = []
+        
+        # Password policy recommendations
+        if 'error' not in password_policy:
+            for setting, details in password_policy.items():
+                if not details.get('compliant', True):
+                    recommendations.append(f"Update password policy: {setting} should be {details['recommended']}")
+        
+        # MFA recommendations
+        if 'error' not in mfa_status and mfa_status.get('console_mfa_disabled', 0) > 0:
+            recommendations.append(f"Enable MFA for {mfa_status['console_mfa_disabled']} console users")
+        
+        # Root usage recommendations
+        if root_usage and len(root_usage) > 0:
+            recommendations.append("Minimize root account usage - use IAM users with appropriate permissions instead")
+        
+        # Security score recommendations
+        if security_score.get('score', 100) < 80:
+            recommendations.append("Overall security score is below 80 - review and address security findings")
+        
+        return recommendations
+
     def generate_summary_report(self) -> Dict[str, Any]:
         """Generate a comprehensive summary report of all security and compliance metrics."""
         report = {

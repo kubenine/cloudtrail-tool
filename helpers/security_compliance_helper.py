@@ -7,15 +7,15 @@ class SecurityComplianceHelper:
     def __init__(self, session: boto3.Session):
         """Initialize the SecurityComplianceHelper with AWS session."""
         self.session = session
-        self.iam_client = session.client('iam')
-        self.cloudtrail_client = session.client('cloudtrail')
+        self.iam = session.client('iam')
+        self.cloudtrail = session.client('cloudtrail')
 
     def check_password_policy(self) -> Dict[str, Any]:
-        """Check the account password policy against best practices."""
+        """Check IAM password policy compliance."""
         try:
-            policy = self.iam_client.get_account_password_policy()['PasswordPolicy']
+            policy = self.iam.get_account_password_policy()['PasswordPolicy']
             
-            compliance_status = {
+            requirements = {
                 'minimum_password_length': {
                     'current': policy.get('MinimumPasswordLength', 0),
                     'recommended': 14,
@@ -41,166 +41,177 @@ class SecurityComplianceHelper:
                     'recommended': True,
                     'compliant': policy.get('RequireLowercaseCharacters', False)
                 },
-                'password_reuse_prevention': {
-                    'current': policy.get('PasswordReusePrevention', 0),
-                    'recommended': 24,
-                    'compliant': policy.get('PasswordReusePrevention', 0) >= 24
-                },
                 'max_password_age': {
-                    'current': policy.get('MaxPasswordAge', 0),
+                    'current': policy.get('MaxPasswordAge', 'No limit'),
                     'recommended': 90,
-                    'compliant': 0 < policy.get('MaxPasswordAge', 0) <= 90
+                    'compliant': policy.get('MaxPasswordAge', 999) <= 90
                 }
             }
             
-            return compliance_status
-        except self.iam_client.exceptions.NoSuchEntityException:
-            return {'error': 'No password policy is set'}
+            return requirements
+            
         except Exception as e:
-            return {'error': str(e)}
+            return {'error': f"Error checking password policy: {e}"}
 
     def check_mfa_status(self) -> Dict[str, Any]:
-        """Check MFA status for all IAM users, considering only console users."""
+        """Check MFA status for all users."""
         try:
-            users = self.iam_client.list_users()['Users']
-            mfa_status = {
-                'total_users': len(users),
-                'console_users': 0,
-                'cli_only_users': 0,
-                'console_mfa_enabled': 0,
-                'console_mfa_disabled': 0,
-                'console_users_without_mfa': [],
-                'cli_users': []
-            }
+            users = self.iam.list_users()['Users']
+            
+            console_users = []
+            cli_users = []
+            console_mfa_enabled = 0
             
             for user in users:
                 username = user['UserName']
                 
-                # Check if user has console access (login profile)
-                has_console_access = False
+                # Check if user has console access
                 try:
-                    self.iam_client.get_login_profile(UserName=username)
-                    has_console_access = True
-                except self.iam_client.exceptions.NoSuchEntityException:
-                    # User doesn't have console access
-                    has_console_access = False
-                
-                if has_console_access:
-                    mfa_status['console_users'] += 1
+                    self.iam.get_login_profile(UserName=username)
+                    console_users.append(username)
                     
-                    # Check MFA for console users only
-                    mfa_devices = self.iam_client.list_mfa_devices(UserName=username)
-                    if not mfa_devices['MFADevices']:
-                        mfa_status['console_mfa_disabled'] += 1
-                        mfa_status['console_users_without_mfa'].append(username)
-                    else:
-                        mfa_status['console_mfa_enabled'] += 1
-                else:
-                    mfa_status['cli_only_users'] += 1
-                    mfa_status['cli_users'].append(username)
+                    # Check MFA devices
+                    mfa_devices = self.iam.list_mfa_devices(UserName=username)
+                    if mfa_devices['MFADevices']:
+                        console_mfa_enabled += 1
+                    
+                except self.iam.exceptions.NoSuchEntityException:
+                    # User doesn't have console access
+                    cli_users.append(username)
             
-            return mfa_status
-        except Exception as e:
-            return {'error': str(e)}
-
-    def check_access_key_rotation(self, max_age_days: int = 90) -> Dict[str, Any]:
-        """Check access key rotation status for all IAM users."""
-        try:
-            users = self.iam_client.list_users()['Users']
-            rotation_status = {
-                'total_keys': 0,
-                'keys_requiring_rotation': [],
-                'compliant_keys': 0,
-                'non_compliant_keys': 0
+            console_users_without_mfa = []
+            for user in console_users:
+                mfa_devices = self.iam.list_mfa_devices(UserName=user)
+                if not mfa_devices['MFADevices']:
+                    console_users_without_mfa.append(user)
+            
+            return {
+                'total_users': len(users),
+                'console_users': len(console_users),
+                'cli_only_users': len(cli_users),
+                'console_mfa_enabled': console_mfa_enabled,
+                'console_mfa_disabled': len(console_users) - console_mfa_enabled,
+                'console_users_without_mfa': console_users_without_mfa,
+                'cli_users': cli_users
             }
             
+        except Exception as e:
+            return {'error': f"Error checking MFA status: {e}"}
+
+    def check_access_key_rotation(self, max_age_days: int = 90) -> Dict[str, Any]:
+        """Check access key rotation compliance."""
+        try:
+            users = self.iam.list_users()['Users']
+            
+            total_keys = 0
+            non_compliant_keys = 0
+            keys_requiring_rotation = []
+            
             for user in users:
-                access_keys = self.iam_client.list_access_keys(UserName=user['UserName'])
+                username = user['UserName']
+                
+                access_keys = self.iam.list_access_keys(UserName=username)
+                
                 for key in access_keys['AccessKeyMetadata']:
-                    rotation_status['total_keys'] += 1
-                    key_age = (datetime.now(timezone.utc) - key['CreateDate']).days
+                    total_keys += 1
+                    
+                    # Calculate age
+                    key_age = (datetime.now(key['CreateDate'].tzinfo) - key['CreateDate']).days
                     
                     if key_age > max_age_days:
-                        rotation_status['non_compliant_keys'] += 1
-                        rotation_status['keys_requiring_rotation'].append({
-                            'username': user['UserName'],
+                        non_compliant_keys += 1
+                        keys_requiring_rotation.append({
+                            'username': username,
                             'access_key_id': key['AccessKeyId'],
-                            'age_days': key_age
+                            'age_days': key_age,
+                            'status': key['Status']
                         })
-                    else:
-                        rotation_status['compliant_keys'] += 1
             
-            return rotation_status
+            return {
+                'total_keys': total_keys,
+                'compliant_keys': total_keys - non_compliant_keys,
+                'non_compliant_keys': non_compliant_keys,
+                'keys_requiring_rotation': keys_requiring_rotation
+            }
+            
         except Exception as e:
-            return {'error': str(e)}
+            return {'error': f"Error checking access key rotation: {e}"}
 
-    def monitor_root_account_usage(self, days: int = 30) -> List[Dict[str, Any]]:
-        """Monitor root account usage over specified period."""
+    def monitor_root_account_usage(self, days: int = 7) -> List[Dict[str, Any]]:
+        """Monitor root account usage."""
         try:
-            end_time = datetime.now()
+            end_time = datetime.utcnow()
             start_time = end_time - timedelta(days=days)
             
-            response = self.cloudtrail_client.lookup_events(
-                StartTime=start_time,
-                EndTime=end_time,
+            events = self.cloudtrail.lookup_events(
                 LookupAttributes=[
                     {
-                        'AttributeKey': 'Username',
+                        'AttributeKey': 'UserName',
                         'AttributeValue': 'root'
                     }
-                ]
+                ],
+                StartTime=start_time,
+                EndTime=end_time
             )
             
             root_activities = []
-            for event in response['Events']:
+            for event in events.get('Events', []):
                 root_activities.append({
                     'timestamp': event['EventTime'],
                     'event_name': event['EventName'],
-                    'event_source': event['EventSource'],
-                    'resources': event['Resources']
+                    'event_source': event.get('EventSource', 'Unknown'),
+                    'source_ip': event.get('SourceIPAddress', 'Unknown')
                 })
             
             return root_activities
+            
         except Exception as e:
-            return [{'error': str(e)}]
+            return [{'error': f"Error monitoring root account usage: {e}"}]
 
     def get_security_score(self) -> Dict[str, Any]:
-        """Calculate overall security score based on various compliance checks."""
-        score = 100
-        findings = []
-        
-        # Check password policy
-        password_policy = self.check_password_policy()
-        if isinstance(password_policy, dict) and 'error' not in password_policy:
-            non_compliant = sum(1 for item in password_policy.values() if not item['compliant'])
-            score -= (non_compliant * 5)
-            if non_compliant > 0:
-                findings.append(f"Password policy has {non_compliant} non-compliant settings")
-        
-        # Check MFA status (only for console users)
-        mfa_status = self.check_mfa_status()
-        if 'error' not in mfa_status and mfa_status['console_users'] > 0:
-            mfa_percentage = (mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100
-            if mfa_percentage < 100:
-                score -= (15 * (100 - mfa_percentage) / 100)  # Increased weight for MFA
-                findings.append(f"{mfa_status['console_mfa_disabled']} console users without MFA")
-        
-        # Check access key rotation
-        key_rotation = self.check_access_key_rotation()
-        if 'error' not in key_rotation:
-            if key_rotation['non_compliant_keys'] > 0:
-                score -= (key_rotation['non_compliant_keys'] * 3)  # Reduced weight since it's less critical
-                findings.append(f"{key_rotation['non_compliant_keys']} access keys need rotation")
-        
-        # Check root account usage
-        root_usage = self.monitor_root_account_usage(days=7)
-        if root_usage and 'error' not in root_usage[0]:
-            if len(root_usage) > 0:
-                score -= (len(root_usage) * 10)  # Increased weight for root usage
-                findings.append(f"Root account used {len(root_usage)} times in past week")
-        
-        return {
-            'score': max(0, score),
-            'findings': findings,
-            'last_updated': datetime.now().isoformat()
-        } 
+        """Calculate overall security score."""
+        try:
+            score = 100
+            findings = []
+            
+            # Password policy check (20 points)
+            password_policy = self.check_password_policy()
+            if 'error' not in password_policy:
+                non_compliant = sum(1 for setting in password_policy.values() if not setting['compliant'])
+                score -= non_compliant * 5
+                if non_compliant > 0:
+                    findings.append(f"Password policy has {non_compliant} non-compliant settings")
+            
+            # MFA check (15 points)
+            mfa_status = self.check_mfa_status()
+            if 'error' not in mfa_status and mfa_status['console_users'] > 0:
+                mfa_percentage = (mfa_status['console_mfa_enabled'] / mfa_status['console_users']) * 100
+                if mfa_percentage < 100:
+                    points_lost = int(15 * (100 - mfa_percentage) / 100)
+                    score -= points_lost
+                    findings.append(f"{mfa_status['console_mfa_disabled']} console users without MFA")
+            
+            # Access key rotation check (25 points)
+            key_rotation = self.check_access_key_rotation()
+            if 'error' not in key_rotation:
+                score -= key_rotation['non_compliant_keys'] * 3
+                if key_rotation['non_compliant_keys'] > 0:
+                    findings.append(f"{key_rotation['non_compliant_keys']} access keys need rotation")
+            
+            # Root account usage check (40 points)
+            root_usage = self.monitor_root_account_usage()
+            if root_usage and 'error' not in root_usage[0]:
+                score -= len(root_usage) * 10
+                if len(root_usage) > 0:
+                    findings.append(f"Root account used {len(root_usage)} times in past week")
+            
+            # Ensure score doesn't go below 0
+            score = max(0, score)
+            
+            return {
+                'score': score,
+                'findings': findings
+            }
+            
+        except Exception as e:
+            return {'score': 0, 'findings': [f"Error calculating security score: {e}"]} 
