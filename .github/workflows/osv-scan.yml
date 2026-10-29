@@ -1,0 +1,44 @@
+name: OSV Security Scan
+
+# Public repo: cannot call the private shared workflow in Github-action-workflow, and must not use the
+# self-hosted runner pool, so this is self-contained and runs on GitHub-hosted runners.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install osv-scanner (pinned, checksum verified)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/osv-scanner https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+          echo "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+
+      - name: OSV scan (report only)
+        run: |
+          set +e
+          /tmp/osv-scanner scan source -r . 2>&1 | tee /tmp/osv-report.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          # osv-scanner exit codes: 0 clean, 1 vulnerabilities found, 128 no packages found
+          case "$rc" in
+            0|128) ;;
+            1) { echo "### OSV: vulnerabilities found"; echo '```'; tail -n 60 /tmp/osv-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+               echo "::warning::OSV found vulnerabilities (report only)." ;;
+            *) echo "::error::osv-scanner failed with exit code $rc"; exit "$rc" ;;
+          esac
