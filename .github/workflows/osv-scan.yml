@@ -1,0 +1,20 @@
+name: OSV Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    uses: kubenine/Github-action-workflow/.github/workflows/osv-scan.yml@main
+    with:
+      service_name: cloudtrail-tool
+      # report only; set `blocking: true` to fail the job on findings
