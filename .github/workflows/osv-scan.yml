@@ -1,0 +1,19 @@
+name: OSV Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan-requirements:
+    uses: kubenine/Github-action-workflow/.github/workflows/python-osv-scan.yml@main
+    with:
+      service_name: cloudtrail-tool
+      requirements_file: requirements.txt
+    secrets: inherit
