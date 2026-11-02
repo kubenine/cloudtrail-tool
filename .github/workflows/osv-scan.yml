@@ -1,5 +1,7 @@
 name: OSV Security Scan
 
+# This repo is public, so it cannot call the private shared OSV workflows
+# (kubenine/Github-action-workflow). Runs osv-scanner directly on a GitHub-hosted runner.
 on:
   push:
     branches: [main]
@@ -11,9 +13,34 @@ permissions:
   contents: read
 
 jobs:
-  osv-scan-requirements:
-    uses: kubenine/Github-action-workflow/.github/workflows/python-osv-scan.yml@main
-    with:
-      service_name: cloudtrail-tool
-      requirements_file: requirements.txt
-    secrets: inherit
+  osv-scan:
+    name: OSV Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install osv-scanner (pinned, checksum verified)
+        run: |
+          set -euo pipefail
+          VERSION=v2.7.0
+          SHA=160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+          curl -fsSL -o /tmp/osv-scanner "https://github.com/google/osv-scanner/releases/download/${VERSION}/osv-scanner_linux_amd64"
+          echo "${SHA}  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+
+      - name: OSV scan
+        run: |
+          set +e
+          /tmp/osv-scanner scan source -r . 2>&1 | tee /tmp/osv-report.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          # osv-scanner exit codes: 0 clean, 1 vulnerabilities found, 128 no packages found
+          case "$rc" in
+            0|128) ;;
+            1)
+              { echo '### OSV: vulnerabilities found'; echo '```'; tail -n 60 /tmp/osv-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::OSV found vulnerabilities (report only; no deploy in this repo to gate)."
+              ;;
+            *) echo "::error::osv-scanner failed with exit code $rc"; exit "$rc" ;;
+          esac
